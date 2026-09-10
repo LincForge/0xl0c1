@@ -132,6 +132,39 @@ def commit(
     }
 
 
+# ---------------------------------------------------------------- viewer
+# Read-only window onto the graph, for the demo split-screen. Shell only:
+# it renders whatever the four tables hold. No logic lives here.
+
+@mcp.custom_route("/", methods=["GET"])
+async def viewer(request):  # noqa: ARG001
+    from starlette.responses import FileResponse
+    return FileResponse(Path(__file__).parent / "viewer.html")
+
+
+@mcp.custom_route("/api/state", methods=["GET"])
+async def state(request):  # noqa: ARG001
+    from starlette.responses import JSONResponse
+    with db() as conn:
+        rows = lambda q: [dict(r) for r in conn.execute(q)]
+        return JSONResponse({
+            "places": rows("SELECT id, label, path FROM place ORDER BY created_at"),
+            "objects": rows(
+                "SELECT o.id, o.label, p.label AS place, o.tag_code, o.verbatim_text "
+                "FROM object o LEFT JOIN place p ON p.id = o.place_id "
+                "ORDER BY o.last_seen_at DESC"
+            ),
+            "lessons": rows(
+                "SELECT l.id, l.title, o.label AS object, l.next_question, l.is_cursor_active "
+                "FROM lesson l JOIN object o ON o.id = l.object_id ORDER BY l.created_at DESC"
+            ),
+            "claims": rows(
+                "SELECT c.id, c.text, c.confidence, c.status FROM claim c "
+                "JOIN lesson l ON l.id = c.lesson_id ORDER BY l.created_at DESC"
+            ),
+        })
+
+
 if __name__ == "__main__":
     init_db()
     mcp.run(

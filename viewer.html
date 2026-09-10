@@ -1,0 +1,85 @@
+<!doctype html><meta charset="utf-8"><title>0xL0C1 — graph</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root{--bg:#0b0f14;--panel:#131a23;--line:#22303f;--ink:#e6edf3;--dim:#8b9bb0;
+      --accent:#59d0a0;--warn:#e0b341;--new:#59d0a0}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+     font:15px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}
+header{padding:14px 20px;border-bottom:1px solid var(--line);display:flex;
+       align-items:baseline;gap:14px}
+h1{margin:0;font-size:17px;letter-spacing:.14em}
+.sub{color:var(--dim);font-size:12px}
+.live{margin-left:auto;font-size:12px;color:var(--accent)}
+.live.stale{color:var(--warn)}
+main{padding:18px 20px;display:grid;gap:16px;max-width:1100px}
+section{background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+h2{margin:0;padding:9px 14px;font-size:12px;letter-spacing:.16em;color:var(--dim);
+   border-bottom:1px solid var(--line);text-transform:uppercase}
+.count{color:var(--accent)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+td,th{padding:8px 14px;text-align:left;border-bottom:1px solid var(--line);
+      vertical-align:top;word-break:break-word}
+th{color:var(--dim);font-weight:400;font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+tr:last-child td{border-bottom:0}
+.empty{padding:16px 14px;color:var(--dim);font-style:italic;font-size:13px}
+.tag{display:inline-block;padding:1px 7px;border-radius:4px;background:#1d2b38;
+     color:var(--accent);font-size:11px;letter-spacing:.06em}
+.q{color:var(--warn)}
+.cursor{color:var(--accent)}
+@keyframes flash{from{background:#1b3b30}to{background:transparent}}
+.fresh{animation:flash 2.2s ease-out}
+</style>
+<header>
+  <h1>0xL0C1</h1>
+  <span class="sub">memory lives on the object, not the app</span>
+  <span class="live" id="live">connecting…</span>
+</header>
+<main>
+  <section><h2>Places <span class="count" id="c-place">0</span></h2><div id="places"></div></section>
+  <section><h2>Objects <span class="count" id="c-object">0</span></h2><div id="objects"></div></section>
+  <section><h2>Lessons <span class="count" id="c-lesson">0</span></h2><div id="lessons"></div></section>
+  <section><h2>Claims <span class="count" id="c-claim">0</span></h2><div id="claims"></div></section>
+</main>
+<script>
+const COLS = {
+  places:  [["label","label"],["path","path"]],
+  objects: [["label","label"],["place","place"],["tag_code","tag"],["verbatim_text","text read off it"]],
+  lessons: [["title","title"],["object","object"],["next_question","open question"],["is_cursor_active","active"]],
+  claims:  [["text","claim"],["confidence","conf"],["status","status"]],
+};
+const seen = {places:new Set(),objects:new Set(),lessons:new Set(),claims:new Set()};
+let first = true;
+
+function render(key, rows){
+  document.getElementById("c-"+key.slice(0,-1)).textContent = rows.length;
+  const host = document.getElementById(key);
+  if(!rows.length){ host.innerHTML = '<div class="empty">nothing yet — call observe</div>'; return; }
+  const cols = COLS[key];
+  host.innerHTML = "<table><tr>" + cols.map(c=>`<th>${c[1]}</th>`).join("") + "</tr>" +
+    rows.map(r=>{
+      const isNew = !first && !seen[key].has(r.id);
+      seen[key].add(r.id);
+      return `<tr class="${isNew?'fresh':''}">` + cols.map(([f])=>{
+        let v = r[f]; if(v===null||v===undefined||v==="") v = "—";
+        if(f==="tag_code" && v!=="—") return `<td><span class="tag">${v}</span></td>`;
+        if(f==="next_question" && v!=="—") return `<td class="q">${v}</td>`;
+        if(f==="is_cursor_active") return `<td class="cursor">${v?"●":"—"}</td>`;
+        return `<td>${v}</td>`;
+      }).join("") + "</tr>";
+    }).join("") + "</table>";
+}
+
+async function tick(){
+  const el = document.getElementById("live");
+  try{
+    const r = await fetch("/api/state",{cache:"no-store"});
+    const d = await r.json();
+    for(const k of ["places","objects","lessons","claims"]) render(k, d[k]||[]);
+    first = false;
+    el.textContent = "live · " + new Date().toLocaleTimeString();
+    el.className = "live";
+  }catch(e){ el.textContent = "disconnected"; el.className = "live stale"; }
+}
+tick(); setInterval(tick, 1500);
+</script>
