@@ -1,0 +1,7 @@
+loci.db
+loci.db-wal
+loci.db-shm
+.venv/
+__pycache__/
+*.pyc
+.DS_Store

@@ -1,0 +1,9 @@
+[project]
+name = "loci"
+version = "0.1.0"
+description = "0xL0C1 — a method-of-loci agent for the physical world. Memory lives on the object, not the app."
+requires-python = ">=3.11"
+dependencies = ["fastmcp>=2.0"]
+
+[tool.uv]
+package = false
