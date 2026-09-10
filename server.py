@@ -73,7 +73,7 @@ def init_db() -> None:
 
 @mcp.tool
 def observe(
-    place_label: Annotated[str, Field(description="Room or zone the user names, e.g. 'upstairs bathroom', 'garage workbench'.")],
+    place_label: Annotated[str, Field(description="Room or zone the USER named, e.g. 'upstairs bathroom', 'garage workbench'. Pass an empty string if the user has not said where the object is. NEVER guess or infer a location — an invented place corrupts future lookups.")],
     canonical_class: Annotated[str, Field(description="Bare object noun, no adjectives: 'furnace_filter', 'towel_bar', 'valve'.")],
     material: Annotated[Material, Field(description="Primary visible structural material.")],
     mounting: Annotated[Mounting, Field(description="How the object is anchored or placed.")],
@@ -83,8 +83,17 @@ def observe(
     user_label: Annotated[str, Field(description="If the user names it ('the upstairs return filter'), record that exactly.")] = "",
 ) -> dict:
     """Record an object the user is looking at. Creates a new entity, or merges into an existing one."""
+    # Place is the strongest disambiguator we have (80-92% on identical twins), but a
+    # required field the model must guess invites a hallucinated default. Keep it required
+    # so the model always considers it, and turn an honest blank into a prompt.
+    needs_place = not place_label.strip()
     return stub(
         "observe",
+        needs_place=needs_place,
+        prompt_to_user=(
+            "Where does this live? A room or zone name — it is how I will find it again."
+            if needs_place else None
+        ),
         object_id=None,
         place_id=None,
         created=False,
