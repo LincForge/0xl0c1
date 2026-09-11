@@ -1,0 +1,106 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 0xL0C1 - ECR + RDS Postgres + App Runner (1 instance) via VPC connector. us-west-2.
+Parameters:
+  VpcId: {Type: AWS::EC2::VPC::Id}
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: >-
+      Subnets for BOTH the RDS subnet group and the App Runner VPC connector. Must be in
+      App Runner-supported AZs only (us-west-2 excludes usw2-az4); bootstrap_aws.sh filters.
+  ImageTag: {Type: String, Default: latest}
+  CreateService: {Type: String, AllowedValues: ['true', 'false'], Default: 'true'}
+Conditions:
+  ShouldCreateService: !Equals [!Ref CreateService, 'true']
+Resources:
+  Repo:
+    Type: AWS::ECR::Repository
+    Properties: {RepositoryName: '0xl0c1', ImageScanningConfiguration: {ScanOnPush: true}}
+  PathToken:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: 0xl0c1/path-token
+      GenerateSecretString: {PasswordLength: 24, ExcludePunctuation: true, ExcludeUppercase: true}
+  AppSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties: {GroupDescription: 0xl0c1 app runner egress, VpcId: !Ref VpcId}
+  DbSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: 0xl0c1 rds - only the app
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - {IpProtocol: tcp, FromPort: 5432, ToPort: 5432, SourceSecurityGroupId: !Ref AppSg}
+  DbSubnets:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties: {DBSubnetGroupDescription: 0xl0c1, SubnetIds: !Ref SubnetIds}
+  Db:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
+    Properties:
+      # RDS DBInstanceIdentifier must START WITH A LETTER, so this cannot be "0xl0c1".
+      DBInstanceIdentifier: loci
+      Engine: postgres
+      EngineVersion: '16.15'
+      DBInstanceClass: db.t4g.micro
+      AllocatedStorage: 20
+      StorageType: gp3
+      DBName: loci
+      MasterUsername: loci
+      ManageMasterUserPassword: true
+      PubliclyAccessible: false
+      MultiAZ: false
+      BackupRetentionPeriod: 1
+      DeletionProtection: false
+      DBSubnetGroupName: !Ref DbSubnets
+      VPCSecurityGroups: [!Ref DbSg]
+  VpcConnector:
+    Type: AWS::AppRunner::VpcConnector
+    Properties: {VpcConnectorName: 0xl0c1, Subnets: !Ref SubnetIds, SecurityGroups: [!Ref AppSg]}
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument: {Version: '2012-10-17', Statement: [{Effect: Allow, Principal: {Service: tasks.apprunner.amazonaws.com}, Action: sts:AssumeRole}]}
+      Policies:
+        - PolicyName: runtime
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - {Effect: Allow, Action: [secretsmanager:GetSecretValue], Resource: [!Ref PathToken, !GetAtt Db.MasterUserSecret.SecretArn]}
+  AccessRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument: {Version: '2012-10-17', Statement: [{Effect: Allow, Principal: {Service: build.apprunner.amazonaws.com}, Action: sts:AssumeRole}]}
+      ManagedPolicyArns: [arn:aws:iam::aws:policy/service-role/AWSAppRunnerServicePolicyForECRAccess]
+  AutoScaling:
+    Type: AWS::AppRunner::AutoScalingConfiguration
+    Condition: ShouldCreateService
+    Properties: {AutoScalingConfigurationName: 0xl0c1-single, MinSize: 1, MaxSize: 1, MaxConcurrency: 50}
+  Service:
+    Type: AWS::AppRunner::Service
+    Condition: ShouldCreateService
+    Properties:
+      ServiceName: 0xl0c1
+      AutoScalingConfigurationArn: !GetAtt AutoScaling.AutoScalingConfigurationArn
+      InstanceConfiguration: {Cpu: '0.25 vCPU', Memory: '0.5 GB', InstanceRoleArn: !GetAtt InstanceRole.Arn}
+      HealthCheckConfiguration: {Protocol: HTTP, Path: /health, Interval: 10, Timeout: 5, HealthyThreshold: 1, UnhealthyThreshold: 5}
+      NetworkConfiguration:
+        EgressConfiguration: {EgressType: VPC, VpcConnectorArn: !GetAtt VpcConnector.VpcConnectorArn}
+      SourceConfiguration:
+        AutoDeploymentsEnabled: true
+        AuthenticationConfiguration: {AccessRoleArn: !GetAtt AccessRole.Arn}
+        ImageRepository:
+          ImageIdentifier: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/0xl0c1:${ImageTag}'
+          ImageRepositoryType: ECR
+          ImageConfiguration:
+            Port: '8130'
+            RuntimeEnvironmentVariables:
+              - {Name: LOCI_DB_HOST, Value: !GetAtt Db.Endpoint.Address}
+              - {Name: LOCI_DB_NAME, Value: loci}
+            RuntimeEnvironmentSecrets:
+              - {Name: LOCI_DB_SECRET, Value: !GetAtt Db.MasterUserSecret.SecretArn}
+              - {Name: LOCI_PATH_TOKEN, Value: !Ref PathToken}
+Outputs:
+  ServiceUrl: {Condition: ShouldCreateService, Value: !GetAtt Service.ServiceUrl}
+  ServiceArn: {Condition: ShouldCreateService, Value: !GetAtt Service.ServiceArn}
+  RepositoryUri: {Value: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/0xl0c1'}
+  DbHost: {Value: !GetAtt Db.Endpoint.Address}

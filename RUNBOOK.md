@@ -73,3 +73,7 @@ problem, not a code problem. Drop to rung 2.
 - **The graph is shared and open.** One memory space for everyone holding the URL. Do not observe
   anything you would mind a room reading, and expect that someone will try the prompt-injection beat
   on you — which is fine, that is rehearsed (claims come back as data, never instructions).
+
+- **TLS lags the custom-domain `active` status by ~1 minute.** Right after `loci.lincspace.ai` goes
+  active, curl can still see the `*.awsapprunner.com` wildcard cert (exit 60). It clears on its own.
+  If it ever reappears, use the awsapprunner URL from `.loci-cloud-url` — same service, same token.
