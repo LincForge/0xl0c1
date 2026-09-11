@@ -73,7 +73,7 @@ function render(key, rows){
 async function tick(){
   const el = document.getElementById("live");
   try{
-    const r = await fetch("/api/state",{cache:"no-store"});
+    const r = await fetch("api/state",{cache:"no-store"});
     const d = await r.json();
     for(const k of ["places","objects","lessons","claims"]) render(k, d[k]||[]);
     first = false;

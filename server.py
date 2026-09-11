@@ -11,14 +11,29 @@ from __future__ import annotations
 
 import json
 import os
-import sqlite3
 from pathlib import Path
 from typing import Annotated, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-DB_PATH = Path(os.environ.get("LOCI_DB", Path(__file__).parent / "loci.db"))
+import db
+
+
+def _token() -> str:
+    """Capability-URL token. Env (App Runner secret) wins; else the gitignored .loci-token file."""
+    if tok := os.environ.get("LOCI_PATH_TOKEN"):
+        return tok.strip()
+    f = Path(__file__).parent / ".loci-token"
+    if not f.exists():
+        import secrets, string
+        alphabet = string.ascii_lowercase + string.digits
+        f.write_text("".join(secrets.choice(alphabet) for _ in range(24)))
+    return f.read_text().strip()
+
+
+TOKEN = _token()
+BASE = f"/loci-{TOKEN}"  # the MCP endpoint, viewer and state route all live under this path
 
 # Enums are obeyed 99.8-100% by frontier models; prose instructions inside
 # parameter descriptions only 58-78% (IFEval-FC, 750 cases). Constrain, don't ask.
@@ -58,17 +73,6 @@ def stub(tool: str, **extra) -> dict:
     return {"status": NOT_IMPLEMENTED,
             "_stub": f"{tool} is not implemented yet — built during the hackathon",
             **extra}
-
-
-def db() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-def init_db() -> None:
-    with db() as conn:
-        conn.executescript((Path(__file__).parent / "schema.sql").read_text())
 
 
 @mcp.tool
@@ -161,16 +165,23 @@ def commit(
 # Read-only window onto the graph, for the demo split-screen. Shell only:
 # it renders whatever the four tables hold. No logic lives here.
 
-@mcp.custom_route("/", methods=["GET"])
+@mcp.custom_route("/health", methods=["GET"])
+async def health(request):  # noqa: ARG001
+    """Unauthenticated liveness for App Runner. Reports which backend is wired and whether it answers."""
+    from starlette.responses import JSONResponse
+    return JSONResponse({"ok": True, "backend": db.backend(), **db.ping()})
+
+
+@mcp.custom_route(f"{BASE}/", methods=["GET"])
 async def viewer(request):  # noqa: ARG001
     from starlette.responses import FileResponse
     return FileResponse(Path(__file__).parent / "viewer.html")
 
 
-@mcp.custom_route("/api/state", methods=["GET"])
+@mcp.custom_route(f"{BASE}/api/state", methods=["GET"])
 async def state(request):  # noqa: ARG001
     from starlette.responses import JSONResponse
-    with db() as conn:
+    with db.connect() as conn:
         rows = lambda q: [dict(r) for r in conn.execute(q)]
         return JSONResponse({
             "places": rows("SELECT id, label, path FROM place ORDER BY created_at"),
@@ -191,10 +202,13 @@ async def state(request):  # noqa: ARG001
 
 
 if __name__ == "__main__":
-    init_db()
+    db.init_db()
     mcp.run(
         transport="http",
-        host="127.0.0.1",
+        host=os.environ.get("LOCI_HOST", "127.0.0.1"),  # 0.0.0.0 inside the container
         port=int(os.environ.get("LOCI_PORT", "8130")),
-        path="/mcp",
+        path=f"{BASE}/mcp",
+        stateless_http=True,       # an image push restarts the instance; live connectors must survive it
+        json_response=True,
+        host_origin_protection=False,  # public capability URL; Host varies (awsapprunner + custom domain)
     )

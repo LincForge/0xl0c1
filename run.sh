@@ -30,13 +30,14 @@ curl -sf -o /dev/null -m 2 "http://127.0.0.1:$PORT/api/state" || { echo "server 
 
 H=$(host)
 if [[ "${1:-}" == "--public" ]]; then
-  # Path-mounted on 443. Bare non-standard ports are refused by connector backends.
-  tailscale funnel --bg --https=443 --set-path="$PATHSEG" "http://127.0.0.1:$PORT" >/dev/null
+  # On 443. Bare non-standard ports are refused by connector backends. The app itself mounts
+  # everything under /loci-<token>, so no --set-path: the whole port is proxied and /health is public.
+  tailscale funnel --bg --https=443 "http://127.0.0.1:$PORT" >/dev/null
   URL="https://$H$PATHSEG"
   echo "PUBLIC.  connector URL:"
 else
   tailscale serve --bg --https="$PORT" "http://127.0.0.1:$PORT" >/dev/null
-  URL="https://$H:$PORT"
+  URL="https://$H:$PORT$PATHSEG"
   echo "TAILNET-ONLY (will NOT work as a claude.ai connector — use --public):"
 fi
 echo
