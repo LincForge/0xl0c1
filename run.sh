@@ -25,8 +25,8 @@ PATHSEG="/loci-$TOKEN"
 pkill -f "python server.py" 2>/dev/null || true; sleep 1
 uv sync -q
 nohup uv run python server.py > /tmp/loci.log 2>&1 &
-for _ in $(seq 1 30); do sleep 0.5; curl -sf -o /dev/null -m 1 "http://127.0.0.1:$PORT/api/state" && break; done
-curl -sf -o /dev/null -m 2 "http://127.0.0.1:$PORT/api/state" || { echo "server failed to start — see /tmp/loci.log"; tail -20 /tmp/loci.log; exit 1; }
+for _ in $(seq 1 30); do sleep 0.5; curl -sf -o /dev/null -m 1 "http://127.0.0.1:$PORT/health" && break; done
+curl -sf -o /dev/null -m 2 "http://127.0.0.1:$PORT/health" || { echo "server failed to start — see /tmp/loci.log"; tail -20 /tmp/loci.log; exit 1; }
 
 H=$(host)
 if [[ "${1:-}" == "--public" ]]; then
