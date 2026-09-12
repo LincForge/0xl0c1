@@ -8,6 +8,8 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import psycopg
@@ -53,6 +55,26 @@ def init_db() -> None:
     else:
         with sqlite3.connect(os.environ.get("LOCI_DB", HERE / "loci.db")) as conn:
             conn.executescript((HERE / "schema.sql").read_text())
+
+
+def q(sql: str) -> str:
+    """Rewrite ? placeholders for the active backend (sqlite keeps ?, psycopg wants %s)."""
+    return sql if backend() == "sqlite" else sql.replace("?", "%s")
+
+
+@contextmanager
+def tx() -> Iterator[sqlite3.Connection | psycopg.Connection[dict[str, object]]]:
+    """One transaction: psycopg connects autocommit, sqlite3 does not, so wrap both the same way."""
+    conn = connect()
+    try:
+        if isinstance(conn, psycopg.Connection):
+            with conn.transaction():
+                yield conn
+        else:
+            with conn:  # commits on success, rolls back on exception
+                yield conn
+    finally:
+        conn.close()
 
 
 def ping() -> dict[str, str]:

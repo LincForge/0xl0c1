@@ -10,7 +10,11 @@ a vision model we do not control, plus what the user says.
 
 from __future__ import annotations
 
+import json
 import os
+import re
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -76,6 +80,56 @@ mcp = FastMCP(
 )
 
 
+# ---------------------------------------------------------------- helpers
+# Every normalisation lives here once and is shared by observe / ask / commit.
+
+_PLACE_STOPWORDS = {"the", "a", "an", "my", "in", "on", "at", "of"}
+_NOT_ALNUM = re.compile(r"[^a-z0-9]+")
+
+
+def now_iso() -> str:
+    """ISO-8601 UTC, second precision, Z suffix. Never local time."""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def new_id() -> str:
+    return uuid.uuid4().hex
+
+
+def norm_text(s: str) -> str:
+    """casefold, collapse whitespace runs, strip."""
+    return " ".join(s.casefold().split())
+
+
+def norm_tag(s: str) -> str:
+    """Printed short codes: strip non-alphanumerics, uppercase, Crockford-fold I/L->1, O->0."""
+    t = re.sub(r"[^A-Za-z0-9]", "", s).upper()
+    return t.translate(str.maketrans({"I": "1", "L": "1", "O": "0"}))
+
+
+def place_path(label: str) -> str:
+    """Derive the stored place path. Exact-equality key for ask; no hierarchy is ever scored."""
+    explicit = "." in label
+    raw = label.split(".") if explicit else re.split(r"[\s/>,]+", label)
+    segs: list[str] = []
+    for seg in raw:
+        seg = seg.strip()
+        if not seg or seg.casefold() in _PLACE_STOPWORDS:
+            continue
+        n = _NOT_ALNUM.sub("_", seg.casefold()).strip("_")
+        n = re.sub(r"_+", "_", n)
+        if n:
+            segs.append(n)
+    if not explicit:
+        segs.insert(0, "house")
+    return ".".join(segs)
+
+
+def _row(r: object) -> dict[str, object]:
+    return dict(r)  # type: ignore[call-overload]
+
+
+
 NOT_IMPLEMENTED = "not_implemented"
 
 
@@ -138,32 +192,87 @@ def observe(
         ),
     ] = "",
 ) -> dict[str, object]:
-    """Record an object the user is looking at. Creates a new entity, or merges into an existing one."""
-    # Place is the strongest disambiguator we have (80-92% on identical twins), but a
-    # required field the model must guess invites a hallucinated default. Keep it required
-    # so the model always considers it, and turn an honest blank into a prompt.
-    needs_place = not place_label.strip()
-    return stub(
-        "observe",
-        needs_place=needs_place,
-        prompt_to_user=(
-            "Where does this live? A room or zone name — it is how I will find it again."
-            if needs_place
-            else None
-        ),
-        object_id=None,
-        place_id=None,
-        created=False,
-        echo={
-            "place_label": place_label,
-            "canonical_class": canonical_class,
-            "material": material,
-            "mounting": mounting,
-            "visible_verbatim_text": visible_verbatim_text,
-            "visible_tag_code": visible_tag_code,
-            "user_label": user_label,
-        },
-    )
+    """Record an object the user is looking at. Create-only: every observe is a new row."""
+    echo = {
+        "place_label": place_label,
+        "canonical_class": canonical_class,
+        "material": material,
+        "mounting": mounting,
+        "visible_verbatim_text": visible_verbatim_text,
+        "visible_tag_code": visible_tag_code,
+        "user_label": user_label,
+    }
+    # Place is the strongest disambiguator we have, but a required field the model must guess
+    # invites a hallucinated default. Keep it required, and turn an honest blank into a prompt.
+    if not place_label.strip():
+        return {
+            "status": "needs_place",
+            "needs_place": True,
+            "prompt_to_user": "Where does this live? A room or zone name — it is how I will find it again.",
+            "object_id": None,
+            "place_id": None,
+            "created": False,
+            "echo": echo,
+        }
+
+    path = place_path(place_label)
+    tag = norm_tag(visible_tag_code) or None
+    label = user_label.strip() or canonical_class
+    now = now_iso()
+    with db.tx() as conn:
+        if tag is not None:
+            hit = conn.execute(db.q("SELECT id, label FROM object WHERE tag_code = ?"), (tag,)).fetchone()
+            if hit is not None:
+                h = _row(hit)
+                return {
+                    "status": "tag_conflict",
+                    "needs_place": False,
+                    "prompt_to_user": f"Tag {tag} is already on '{h['label']}'. Is this that object?",
+                    "object_id": h["id"],
+                    "place_id": None,
+                    "created": False,
+                    "echo": echo,
+                }
+        row = conn.execute(db.q("SELECT id FROM place WHERE path = ?"), (path,)).fetchone()
+        if row is None:
+            place_id = new_id()
+            conn.execute(
+                db.q("INSERT INTO place (id, label, path, created_at) VALUES (?, ?, ?, ?)"),
+                (place_id, place_label, path, now),
+            )
+        else:
+            place_id = str(_row(row)["id"])
+        object_id = new_id()
+        conn.execute(
+            db.q(
+                "INSERT INTO object (id, label, aliases_json, attrs_json, place_id, tag_code, "
+                "verbatim_text, description, first_seen_at, last_seen_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            ),
+            (
+                object_id,
+                label,
+                json.dumps([user_label.strip()] if user_label.strip() else []),
+                json.dumps({"material": material, "mounting": mounting, "canonical_class": canonical_class}),
+                place_id,
+                tag,
+                visible_verbatim_text,
+                description,
+                now,
+                now,
+            ),
+        )
+    return {
+        "status": "created",
+        "created": True,
+        "object_id": object_id,
+        "place_id": place_id,
+        "place_path": path,
+        "label": label,
+        "needs_place": False,
+        "prompt_to_user": None,
+        "echo": echo,
+    }
 
 
 @mcp.tool
@@ -221,24 +330,65 @@ def commit(
 ) -> dict[str, object]:
     """Write a lesson against an object. With save=false, returns a preview and writes nothing."""
     if not save:
-        return stub(
-            "commit",
-            skipped=True,
-            would_have_written={
+        return {
+            "status": "dry_run",
+            "skipped": True,
+            "would_have_written": {
                 "object_id": object_id,
                 "title": title,
                 "intent": intent,
                 "claims": claims,
                 "next_question": next_question,
             },
+            "lesson_id": None,
+            "object_id": object_id,
+            "claims_persisted": 0,
+            "cursor_active": False,
+        }
+    good = [c for c in claims if isinstance(c, dict) and str(c.get("text") or "").strip()]
+    skipped = len(claims) - len(good)
+    now = now_iso()
+    with db.tx() as conn:
+        if conn.execute(db.q("SELECT 1 FROM object WHERE id = ?"), (object_id,)).fetchone() is None:
+            return {
+                "status": "unknown_object",
+                "skipped": False,
+                "would_have_written": None,
+                "lesson_id": None,
+                "object_id": object_id,
+                "claims_persisted": 0,
+                "claims_skipped": skipped,
+                "cursor_active": False,
+                "prompt_to_user": "I have no object with that id. Call `ask` to find it, or `observe` it first.",
+            }
+        cursor = 1 if next_question.strip() else 0
+        if cursor:
+            conn.execute(db.q("UPDATE lesson SET is_cursor_active = 0 WHERE object_id = ?"), (object_id,))
+        lesson_id = new_id()
+        conn.execute(
+            db.q(
+                "INSERT INTO lesson (id, object_id, title, intent, next_question, is_cursor_active, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)"
+            ),
+            (lesson_id, object_id, title, intent or None, next_question.strip() or None, cursor, now),
         )
-    return stub(
-        "commit",
-        lesson_id=None,  # None, not a plausible id — nothing was written
-        object_id=object_id,
-        claims_persisted=0,
-        cursor_active=False,
-    )
+        for c in good:
+            conf = c.get("confidence")
+            conn.execute(
+                db.q("INSERT INTO claim (id, lesson_id, text, confidence, status) VALUES (?, ?, ?, ?, 'asserted')"),
+                (new_id(), lesson_id, str(c["text"]).strip(), float(conf) if conf is not None else None),
+            )
+        conn.execute(db.q("UPDATE object SET last_seen_at = ? WHERE id = ?"), (now, object_id))
+    return {
+        "status": "committed",
+        "skipped": False,
+        "would_have_written": None,
+        "lesson_id": lesson_id,
+        "object_id": object_id,
+        "claims_persisted": len(good),
+        "claims_skipped": skipped,
+        "cursor_active": bool(cursor),
+    }
 
 
 # ---------------------------------------------------------------- viewer
