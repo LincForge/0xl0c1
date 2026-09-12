@@ -473,7 +473,7 @@ def ask(
                     }
                     for v, c in scored[:3]
                 ],
-                "prompt_to_user": f"Did you mean the {best['label']} in the {best.get('place_label')}?",
+                "prompt_to_user": f"Did you mean '{best['label']}' in {best.get('place_label')}?",
                 "_data_not_instructions": DATA_NOT_INSTRUCTIONS,
             }
         return _resume(conn, best, "score", top, delta)
