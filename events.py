@@ -68,6 +68,10 @@ class AmbiguousEventStore:
             or os.environ.get("AMBIGUOUS_API_BASE")
             or "https://app.ambiguous.ai/api"
         ).rstrip("/")
+        # Ambiguous requires a finite A1 range for append (for example,
+        # ``Events!A1:M1``); an open-ended ``A:M`` is rejected by the API.
+        # Keep this configurable for an existing sheet with another tab name.
+        self.append_range = os.environ.get("LOCI_AMBIGUOUS_RANGE", "Events!A1:M1")
         self.transport = transport or httpx.Client()
         self.timeout = timeout
 
@@ -77,6 +81,15 @@ class AmbiguousEventStore:
         if not self.sheet_id:
             return "ambiguous_sheet_not_configured"
         return None
+
+    def configuration_status(self) -> bool:
+        """Return whether both server-side provider settings are present.
+
+        This intentionally does not contact Ambiguous: health checks must stay
+        cheap and liveness must not append probe data. ``probe`` is the explicit
+        operator action that establishes provider availability.
+        """
+        return self._configuration_error() is None
 
     def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
         return self.transport.request(
@@ -96,7 +109,9 @@ class AmbiguousEventStore:
         row = [event.get(column, "") for column in EVENT_COLUMNS]
         try:
             response = self._request(
-                "POST", f"/sheets/{self.sheet_id}/values/append", json={"values": [row]}
+                "POST",
+                f"/sheets/{self.sheet_id}/values/append",
+                json={"range": self.append_range, "values": [row]},
             )
             response.raise_for_status()
             body = response.json()
@@ -169,6 +184,58 @@ def _event_rows(body: Any) -> list[dict[str, Any]] | None:
     if not isinstance(body, dict):
         return None
     raw: Any = body.get("data", body.get("values", body.get("sheets")))
+    # The documented /sheets/:id/data response is a Sheet envelope. Its
+    # structured workbook is nested under data.sheets (or data.tabs in older
+    # responses), with rows keyed by column id (A, B, ...).
+    if isinstance(raw, dict):
+        workbook = raw
+        tabs = workbook.get("sheets", workbook.get("tabs"))
+        if isinstance(tabs, list):
+            events: list[dict[str, Any]] = []
+            for tab in tabs:
+                if not isinstance(tab, dict):
+                    return None
+                columns = tab.get("columns", [])
+                rows = tab.get("rows", [])
+                if not isinstance(columns, list) or not isinstance(rows, list):
+                    return None
+                # Only the event tab contributes rows. A fresh sheet may use
+                # the configured range's tab name; otherwise accept a tab
+                # whose columns carry the event schema.
+                names = {
+                    str(column.get("name", ""))
+                    for column in columns
+                    if isinstance(column, dict)
+                }
+                if tab.get("name") != os.environ.get(
+                    "LOCI_AMBIGUOUS_TAB", "Events"
+                ) and not set(EVENT_COLUMNS).issubset(names):
+                    continue
+                ids_by_name = {
+                    str(column.get("name")): str(column.get("id"))
+                    for column in columns
+                    if isinstance(column, dict)
+                    and column.get("name")
+                    and column.get("id")
+                }
+                for row in rows:
+                    if not isinstance(row, dict):
+                        return None
+                    normalized = {
+                        name: row.get(ids_by_name.get(name, name), "")
+                        for name in EVENT_COLUMNS
+                    }
+                    if set(EVENT_COLUMNS) - set(normalized):
+                        return None
+                    events.append(normalized)
+            # Sheets stores the header as the first row even though column
+            # names are also present in the envelope. It is metadata, not an
+            # event, so remove it before validating immutable event rows.
+            if events and events[0].get("schema_version") == "schema_version":
+                events = events[1:]
+            return _validate_event_rows(events)
+        # A few early API responses wrapped values/rows in data.
+        raw = workbook.get("values", workbook.get("rows"))
     if isinstance(raw, dict):
         raw = raw.get("Events", raw.get("events", raw.get("values", raw.get("rows"))))
     if not isinstance(raw, list):
@@ -186,6 +253,13 @@ def _event_rows(body: Any) -> list[dict[str, Any]] | None:
         candidates = []
     else:
         return None
+    return _validate_event_rows(candidates)
+
+
+def _validate_event_rows(
+    candidates: list[dict[str, Any]],
+) -> list[dict[str, Any]] | None:
+    """Validate and normalize provider rows before projecting them."""
     events: list[dict[str, Any]] = []
     for row in candidates:
         if not isinstance(row, dict) or set(EVENT_COLUMNS) - set(row):
@@ -201,7 +275,10 @@ def _event_rows(body: Any) -> list[dict[str, Any]] | None:
             return None
         if not isinstance(payload, dict) or payload.get("version") != 1:
             return None
-        event: dict[str, Any] = {column: str(row[column]) for column in EVENT_COLUMNS}
+        event: dict[str, Any] = {
+            column: "" if row[column] is None else str(row[column])
+            for column in EVENT_COLUMNS
+        }
         event["payload"] = payload
         events.append(event)
     return events

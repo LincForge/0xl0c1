@@ -280,8 +280,15 @@ To expose the local server over public HTTPS via Tailscale Funnel:
 | `LOCI_DB` | `./loci.db` | SQLite file, when the backend is SQLite |
 | `LOCI_DATABASE_URL` | — | Full Postgres DSN. Its presence selects the Postgres backend. |
 | `LOCI_DB_HOST` + `LOCI_DB_SECRET` + `LOCI_DB_NAME` | — | The hosted AWS path: RDS endpoint, the RDS-managed `{"username","password"}` secret as JSON, and the database name. Presence of `LOCI_DB_HOST` also selects Postgres. |
+| `AMBIGUOUS_API_KEY` + `LOCI_AMBIGUOUS_SHEET_ID` | — | Server-side Ambiguous Sheets credentials and restricted event sheet. `LOCI_AMBIGUOUS_RANGE` defaults to the finite `Events!A1:M1` append range. |
 
-`GET /health` is unauthenticated and reports `{ok, backend, db}` — that is what App Runner health-checks.
+For App Runner, pass the Secrets Manager ARNs as the optional `AmbiguousApiKeySecretArn` and
+`AmbiguousSheetIdSecretArn` CloudFormation parameters. The template injects them as runtime secrets;
+their values never appear in the image, repository, or health response.
+
+`GET /health` is unauthenticated and reports `{ok, backend, configured, available}` — that is what
+App Runner health-checks. `available` is null while configured because liveness does not perform a
+provider write; the explicit acceptance probe and the state route establish provider availability.
 
 ## Deploy
 

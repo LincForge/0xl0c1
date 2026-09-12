@@ -5,6 +5,9 @@ loci.db-shm
 __pycache__/
 *.pyc
 .DS_Store
+.env
+.env.*
+!.env.example
 .loci-token
 .loci-cloud-url
 .loci-gcp-url

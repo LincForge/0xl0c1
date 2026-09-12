@@ -75,8 +75,10 @@ Runtime configuration:
 The implementation uses the versioned REST surface described by Ambiguous's public OpenAPI:
 
 - `POST /api/sheets` provisions the restricted sheet.
-- `POST /api/sheets/{id}/values/append` appends at the first empty row without a read-before-write.
-- `GET /api/sheets/{id}/data` returns the structured workbook for reconstruction.
+- `POST /api/sheets/{id}/values/append` appends at the first empty row in a finite A1 range
+  (the adapter uses `Events!A1:M1`) without a read-before-write.
+- `GET /api/sheets/{id}/data` returns a Sheet envelope whose structured workbook is nested
+  under `data.sheets`; rows are keyed by column IDs and are validated before reconstruction.
 
 The `Events` tab has a header row and one row per immutable event:
 
