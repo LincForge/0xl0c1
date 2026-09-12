@@ -67,11 +67,13 @@ Enums are obeyed 99.8–100%; prose inside a parameter description only 58–78%
 Instead: make the two fields the user actually authors — **`user_label` and `place_label` — the
 authoritative identity signals**, and treat `material`/`mounting` as **tie-breakers only**. Concretely:
 
-1. They already carry the two smallest weights (0.10 / 0.10). Leave them there.
-2. **Never penalise a mismatch into a no-match**: enum identity contributes `1.0` or `0.0`, never a
-   negative. Already true of the §6 formula — assert it with a test rather than assuming it.
-3. On the **merge** path (P3), an exact non-empty `visible_verbatim_text` match plus the same place
-   **overrides** any enum disagreement.
+1. They carry the smallest possible influence. In the simplified P2 they are **additive bonuses of
+   0.05 each**, capped into [0,1], and nothing else.
+2. **Never penalise a mismatch into a no-match**: a wrong or missing enum costs a bonus the candidate
+   never earned, never a subtraction. The simplified score makes this structural, not asserted, but
+   pin it anyway with `test_enum_mismatch_never_disqualifies`.
+3. A verbatim stamp hit **overrides** any enum disagreement, because the short-circuit runs before
+   scoring and never consults an enum.
 4. Say the finding out loud on camera at 1:45 — it is a real, cheap, honest "we measured our own
    failure mode" beat.
 
@@ -80,8 +82,9 @@ the `mounting` and `material` descriptions. ~58–78% compliance, +~60 tokens of
 still be ignored. Do **not** add an `"unknown"` member: over-coercion is the enum failure mode, but an
 escape hatch turns the field dead across the board.
 
-**Default: take Option A.** It is zero code beyond two assertions and one merge rule, all of which P1–P3
-already ask for. Option B is a 5-minute change if you have spare time in P5.
+**Default: take Option A.** After the 2026-09-12 simplification it is zero extra code at all: the P2
+score already makes enums pure bonuses. It costs one test. Option B is a 5-minute change if you have
+spare time in P5.
 
 ---
 
@@ -94,11 +97,14 @@ already ask for. Option B is a 5-minute change if you have spare time in P5.
 | 11:15–12:15 | `observe` + `commit` persist; viewer shows rows | **P1** | |
 | 12:15–13:45 | **`ask` return visit — this is the product** | **P2** | ⚠️ protect this block |
 | 13:45–14:00 | **Insurance video. Cut it, upload it, paste the link into a draft submission.** | — (§4e take 1 only) | ⚠️ non-negotiable |
-| 14:00–14:45 | Second object, merge, `save:false` gate, `next_question` carry, **verify the confirm band lands** | **P3** | |
+| 14:00–14:45 | **Rehearsal, not code.** Two clean end-to-end passes, `save:false` gate out loud, **write down the two scores the confirm band returns**, hand Jon his takes | P2 spillover only | P3 was CUT |
 | 14:45–15:30 | Real video, README built-vs-brought, final push, tag | **P4** | |
 | any slack | Rig the mid-band, `pg_trgm` behind a flag | **P5** | only if ahead |
 | 15:30–16:30 | Show-and-tell — no building is possible here | — | |
 | 16:30–17:00 | Submit: title, description, repo, video, tagged post (§4f) | — | |
+
+**P2 owns 12:15–14:00.** The merge/alias pass (old P3) was cut on 2026-09-12, on Brian's call and the
+CEO's acceptance, so the demo could be rehearsed instead of extended. Simplicity is the spec now.
 
 **Do not push a container image during a recorded take.** `stateless_http=True` keeps connectors
 alive across a restart, but a 3-minute deploy mid-take still eats the take.
@@ -212,8 +218,8 @@ and calls db.init_db(), and yields a helper exposing row counts, e.g. `counts()`
   `datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")`. Use it everywhere. Never local time.
 - Return: status "created", created=True, object_id, place_id, place_path, label, needs_place=False,
   prompt_to_user=None, and keep `echo` exactly as it is.
-- MERGING IS NOT IN THIS BLOCK. observe is create-only here; P3 adds the merge. Do not stub a
-  half-merge.
+- MERGING IS NOT IN THIS BLOCK, AND NOT IN ANY BLOCK. observe is create-only for the whole event
+  (the P3 merge pass was cut 2026-09-12). Do not stub a half-merge, and do not add one later.
 - If tag_code collides with an existing object's tag_code, do NOT crash: return status
   "tag_conflict", created=False, object_id = the existing object's id, and a `prompt_to_user`
   asking whether this is that object. Write nothing.
@@ -305,7 +311,14 @@ Also: tests/test_server.py must still pass unmodified. Run the whole suite.
 
 ---
 
-### P2 — `ask`, the return visit (12:15–13:45) — **the product**
+### P2 — `ask`, the return visit (12:15–14:00) — **the product**
+
+> **Scope call, made 2026-09-12 on Brian's recommendation and accepted by the CEO:** build the
+> simplest `ask` that makes the demo functional. Jon builds the story around it. Cut from the
+> original design: hierarchical place scoring, the two weight vectors, and the P3 merge/alias pass.
+> Kept and protected: the confirm band, resolution after the user names one, the carried open
+> question, and the readOnly wrapper. This block now owns 12:15–14:00 and the old P3 slot is
+> rehearsal. **This was a scope decision, not permission to move a threshold** (§6).
 
 ```text
 You are working in ~/projects/0xl0c1. Read server.py, db.py, tests/test_persist.py and
@@ -313,12 +326,11 @@ tests/conftest.py before writing anything.
 
 === HARD CONSTRAINTS (identical to the previous block, restated so this block stands alone) ===
 1. ZERO PIXELS. Never receive, store, hash, embed or OCR an image or a pixel embedding. Perception
-   arrives only as text authored by a vision model we do not control. `S_embedding` in the formula
-   below is TEXT similarity on the description string today, not a visual vector. Do not add an
-   embedding model, do not call an LLM, do not add an arbiter.
+   arrives only as text authored by a vision model we do not control. Every similarity below is TEXT
+   similarity. Do not add an embedding model, do not call an LLM, do not add an arbiter.
 2. EXACTLY THREE TOOLS: observe, ask, commit. Adding an optional PARAMETER to `ask` is allowed and
    this block requires it. Adding a fourth tool is not.
-3. ENUMS, NOT PROSE. Constrain with types. Add no steering sentences except the one this block names.
+3. ENUMS, NOT PROSE. Constrain with types. Add no steering sentences.
 4. TDD. Write the listed tests FIRST, show them RED for the right reason, then implement, then GREEN.
 5. NO NEW DEPENDENCIES beyond rapidfuzz.
 6. DO NOT TOUCH infra/, scripts/, Dockerfile, .github/.
@@ -329,9 +341,14 @@ tests/conftest.py before writing anything.
 10. Use db.q() on every parameterised statement and db.tx() for any write.
 Tests call `server.ask(...)` directly (fastmcp 4.0.3 leaves the plain function bound at module level).
 
+=== SIMPLICITY IS THE SPEC ===
+This is deliberately the smallest engine that demos. Do not add cleverness that is not listed here.
+No hierarchical place matching. No weight vectors. No merge pass. If you find yourself writing a
+rescale loop or a second scoring mode, stop: it was cut on purpose.
+
 === THE BLOCK: implement matching exactly as specified ===
 
---- new optional parameters on `ask` (the scoring formula needs them and the stub lacks them) ---
+--- new optional parameters on `ask` (the stub lacks them) ---
 Add, all optional, defaults as shown, keeping the schema flat:
     visible_verbatim_text: str = ""      description: "Transcribe any text, model numbers, sizes or
                                           stamped codes visible on the object EXACTLY as written.
@@ -345,56 +362,57 @@ Optional[Literal] must render as an enum, not as a bare string) and pin it with 
 --- normalisation helpers (shared with observe; factor them out, do not duplicate) ---
   norm_text(s)  -> casefold, collapse all whitespace runs to one space, strip.
   norm_tag(s)   -> strip every non-alphanumeric, uppercase, Crockford-fold I->1, L->1, O->0.
-  place_path(s) -> the derivation already written in P1.
+  place_path(s) -> the derivation already written in P1. Reused UNCHANGED.
 
---- comparators (each returns a float in [0,1]) ---
-  S_text      rapidfuzz.distance.DamerauLevenshtein.normalized_similarity(norm_text(a), norm_text(b)).
-              Use the unrestricted DamerauLevenshtein, not OSA.
-  S_place     dotted-path prefix similarity between the QUERY path and the STORED path, comparing
-              whole segments (never raw string prefixes — "house.bath" must not partially match
-              "house.bathroom"):
-                  equal                                        -> 1.0
-                  query is a strict ancestor of stored         -> 0.8
-                      (user said "upstairs", object lives in house.upstairs.hallway.return)
-                  stored is a strict ancestor of query         -> 0.5
-                      (user was more specific than what we stored)
-                  otherwise                                    -> 0.0
-              This direction assignment is a deliberate reading of "exact 1.0 / child 0.8 /
-              ancestor 0.5": the generous 0.8 goes to the case the demo depends on, a user naming a
-              broader place than the stored one. Encode it as written.
-  S_material  1.0 if the two enum values are equal and both present, else 0.0. NEVER negative.
-  S_mounting  same.
-  S_desc      rapidfuzz.fuzz.token_set_ratio(norm_text(a), norm_text(b)) / 100.0.
-              This occupies the S_embedding slot. There are no embeddings today — that is the
-              zero-pixel constraint, and it is stated on camera.
+--- constants (module level, exactly these three numbers) ---
+    MIN_SCORE    = 0.60   # below this we have no record, and we say so
+    DELTA        = 0.12   # top two closer than this and we refuse to guess
+    VERBATIM_HIT = 0.90   # stamped text this similar is an identification, not a hint
+These are published in the README and a judge can read them. Never move one to make a take land.
 
---- the score ---
-Two weight vectors, as module constants, exactly these numbers:
-    W_FULL    = {"text": 0.35, "place": 0.25, "material": 0.10, "mounting": 0.10, "desc": 0.20}
-    W_NO_TEXT = {            "place": 0.40, "material": 0.15, "mounting": 0.15, "desc": 0.30}
-Selection: if norm_text(query verbatim) is empty OR norm_text(candidate verbatim) is empty, use
-W_NO_TEXT (you cannot compare against nothing); otherwise W_FULL. W_NO_TEXT is the spec's literal
-renormalisation, NOT a proportional rescale of W_FULL — do not compute it, hard-code it.
-Then, for whichever vector is in play, drop any component whose input is missing on either side
-(material/mounting are optional on `ask`; description may be empty) and RESCALE the remaining weights
-proportionally so they sum to 1.0. If nothing is left to compare (no text, no place, no enums, no
-description), score 0.0 rather than dividing by zero.
-Score every object in the graph. Sort descending. delta = top - second, or 1.0 when there is only one
-candidate.
+--- step 1: candidate set (exact place, no hierarchy) ---
+If norm_text(place_label) is non-empty, derive place_path(place_label) and keep ONLY objects whose
+stored place path is EXACTLY equal to it. String equality on the derived path, nothing else: no
+prefix logic, no ancestor/descendant scoring, no partial credit. If place_label is empty, every
+object is a candidate. If the filter leaves zero candidates, that is a no_match.
 
---- bands ---
-  TAG HIT: if norm_tag(visible_tag_code) is non-empty and equals a stored object's norm_tag(tag_code),
-           short-circuit: that object, score 1.0, status "resumed", matched_on "tag_code". No scoring
-           pass at all.
-  object_id passed and it exists: short-circuit the same way with matched_on "object_id", score 1.0.
-           (P3 expands what is returned; the short-circuit belongs here.)
-  AUTO-RESUME: top >= 0.85 AND delta >= 0.12
-  CONFIRM:     0.60 <= top < 0.85, OR (top >= 0.85 AND delta < 0.12)
-  NO MATCH:    top < 0.60  (or there are no objects at all)
+--- step 2: short-circuits, in this order ---
+  a) object_id passed and it exists  -> resume it. matched_on "object_id", score 1.0.
+     This is the path the CONFIRM BAND resolves through: the assistant asks, the human names one,
+     the assistant calls ask(object_id=...). It must work.
+  b) TAG HIT: norm_tag(visible_tag_code) non-empty and equal to a candidate's norm_tag(tag_code)
+     -> resume it. matched_on "tag_code", score 1.0.
+  c) VERBATIM HIT: if norm_text(visible_verbatim_text) is non-empty, compute for each candidate
+       vscore = rapidfuzz.fuzz.token_set_ratio(norm_text(query), norm_text(candidate.verbatim)) / 100
+     Collect candidates with vscore >= VERBATIM_HIT. If EXACTLY ONE qualifies, resume it:
+     matched_on "verbatim_text", score = that vscore. If TWO OR MORE qualify, do NOT resume and do
+     NOT pick the higher one — fall through to scoring, which will land in the confirm band. Two
+     objects carrying near-identical stamps is precisely when a human must decide.
+  No short-circuit fired -> step 3.
 
---- return shapes (exact keys) ---
+--- step 3: the score (one line, no weight vectors) ---
+For each candidate:
+    S_desc = rapidfuzz.fuzz.token_set_ratio(norm_text(query description),
+                                            norm_text(candidate.description)) / 100.0
+    mat    = 1 if material is not None and candidate material equals it, else 0
+    mnt    = 1 if mounting is not None and candidate mounting equals it, else 0
+    score  = min(1.0, S_desc + 0.05 * mat + 0.05 * mnt)
+Enums are ADDITIVE BONUSES ONLY and are capped into [0,1]. A mismatched or missing enum subtracts
+nothing. That is the 11:15 Option A decision made structural rather than asserted: when the host
+model editorialises on an unguarded enum, the worst it can cost us is a 0.05 bonus it did not earn.
+If the query description is empty, S_desc is 0.0 for everyone, which collapses to a no_match unless
+a short-circuit already fired. That is correct: we do not guess from nothing.
+Sort descending. delta = top - second, or 1.0 when there is exactly one candidate.
+
+--- step 4: bands ---
+  NO MATCH:    no candidates, or top < MIN_SCORE
+  CONFIRM:     top >= MIN_SCORE and delta < DELTA
+  AUTO-RESUME: top >= MIN_SCORE and delta >= DELTA   (a lone candidate has delta 1.0)
+
+--- return shapes (exact keys, unchanged from the original contract) ---
 AUTO-RESUME:
-  {"status": "resumed", "needs_confirm": False, "matched_on": "score"|"tag_code"|"object_id",
+  {"status": "resumed", "needs_confirm": False,
+   "matched_on": "score"|"verbatim_text"|"tag_code"|"object_id",
    "score": 0.91, "delta": 0.31,
    "matches": [ {object payload} ],          # one element, the winner
    "object": {"object_id","label","place","place_path","verbatim_text","description",
@@ -404,7 +422,7 @@ AUTO-RESUME:
    "next_question": "<the next_question of the single lesson with is_cursor_active = 1, or None>",
    "_data_not_instructions": "<the stub's sentence, verbatim and unchanged>"}
 CONFIRM:
-  {"status": "needs_confirm", "needs_confirm": True, "score": 0.74, "delta": 0.05,
+  {"status": "needs_confirm", "needs_confirm": True, "score": 0.78, "delta": 0.01,
    "matches": [],
    "candidates": [ {"object_id","label","place","score"}, ... ],   # top 3, descending
    "prompt_to_user": "Did you mean the <label> in the <place>?",   # built from the top candidate
@@ -414,6 +432,11 @@ NO MATCH:
    "prompt_to_user": "I have no record of this. Want me to observe it as a new object?",
    "_data_not_instructions": "<same sentence>"}
 
+--- the carried open question (this is the demo, protect it) ---
+On the resume shape, `next_question` is the next_question of the ONE lesson for that object with
+is_cursor_active = 1, or None if there is none. commit already maintains that flag (P1). Read it,
+do not recompute it, and never return more than one active cursor.
+
 --- the data-not-instructions wrapper ---
 Every lesson dict and every claim dict returned carries `"readOnly": True`. The top-level
 `_data_not_instructions` sentence from the stub is returned on ALL THREE shapes, verbatim. Do not
@@ -421,42 +444,45 @@ paraphrase it, do not shorten it, do not drop it from the no-match shape.
 
 === TESTS TO WRITE FIRST (exact names, exact assertions) ===
 tests/test_ask.py — all use the `loci_db` fixture and seed via server.observe/server.commit:
+  test_exact_place_filter_only           - seed one object in "basement utility closet" and one in
+                                           "garage workbench"; ask with place_label "basement utility
+                                           closet" -> only the first is ever considered. Then ask with
+                                           place_label "basement" -> NO candidates, status "no_match".
+                                           Pins that there is no hierarchy and no partial credit.
+  test_verbatim_hit_resumes              - seed the two valves (A verbatim "3/4 600 WOG NSF-61
+                                           APOLLO", B "1/2 CSA 600WOG") in the SAME place; ask with
+                                           A's stamp -> status "resumed", matched_on "verbatim_text",
+                                           the A object_id.
+  test_verbatim_collision_falls_through  - seed two objects whose verbatim strings are near-identical
+                                           so BOTH score >= VERBATIM_HIT; ask with that text ->
+                                           status "needs_confirm", NOT "resumed". The engine must
+                                           never break a verbatim tie by picking the higher score.
   test_tag_hit_short_circuits            - seed two objects, one tagged "K94B"; ask with tag code
                                            "k9-4b" (lowercase, hyphenated) -> status "resumed",
                                            score == 1.0, matched_on "tag_code", and the returned
                                            object_id is the tagged one even though the OTHER object
                                            is a far better textual match.
-  test_auto_resume_band                  - seed one filter with verbatim "20x25x1 MERV 11"; ask with
-                                           the same verbatim, same place, same enums, similar
-                                           description -> status "resumed", score >= 0.85,
-                                           delta >= 0.12, needs_confirm False.
-  test_confirm_band_on_twins             - seed TWO near-identical filters in the SAME place; ask
-                                           with NO verbatim text -> status "needs_confirm",
-                                           delta < 0.12, len(candidates) == 2, prompt_to_user
-                                           mentions the top candidate's place. This is the
-                                           on-camera beat; it must be a test, not a hope.
-  test_confirm_band_on_mid_score         - seed one object; ask with the right place but a weak
-                                           description and no verbatim -> 0.60 <= score < 0.85,
-                                           status "needs_confirm".
-  test_no_match_offers_observe           - ask about something unrelated -> status "no_match",
-                                           matches == [], prompt_to_user mentions observing.
-  test_no_verbatim_uses_spec_weights     - assert the module constant W_NO_TEXT equals
-                                           {"place":0.40,"material":0.15,"mounting":0.15,"desc":0.30}
-                                           and that it is SELECTED when either side's verbatim is
-                                           empty (assert via the returned weight vector or a
-                                           directly-tested scoring helper, not by eyeballing a score).
-  test_place_prefix_scores               - parametrised: ("house.upstairs.hallway",
-                                           "house.upstairs.hallway") -> 1.0; ("house.upstairs",
-                                           "house.upstairs.hallway") -> 0.8;
-                                           ("house.upstairs.hallway", "house.upstairs") -> 0.5;
-                                           ("house.garage", "house.upstairs") -> 0.0;
-                                           ("house.bath", "house.bathroom") -> 0.0 (segment-wise,
-                                           never a raw string prefix).
+  test_object_id_short_circuits          - ask(object_id=<A>) -> status "resumed", matched_on
+                                           "object_id", and the lessons/claims/next_question of A.
+                                           This is how the confirm band resolves on camera.
+  test_confirm_band_on_twins             - seed the TWO valves in the SAME place; ask with NO verbatim
+                                           text and the generic description "brass ball valve with a
+                                           red lever handle" -> status "needs_confirm", delta < 0.12,
+                                           len(candidates) == 2, prompt_to_user mentions the top
+                                           candidate's place. This is the on-camera beat; it must be
+                                           a test, not a hope.
+  test_lone_candidate_resumes            - one object in the place, decent description -> status
+                                           "resumed", delta == 1.0.
+  test_no_match_offers_observe           - ask about something unrelated in a seeded place -> status
+                                           "no_match", matches == [], best_score < MIN_SCORE,
+                                           prompt_to_user mentions observing.
   test_enum_mismatch_never_disqualifies  - two asks identical except a WRONG mounting enum; the score
-                                           drops by at most the mounting weight and the band does not
-                                           fall below "needs_confirm". Pins the 11:15 Option A
-                                           decision: the model editorialising on an unguarded enum
-                                           must never turn a correct match into a no-match.
+                                           drops by at most 0.05 and the band does not change. Pins
+                                           the 11:15 Option A decision: the model editorialising on
+                                           an unguarded enum must never turn a correct match into a
+                                           no-match.
+  test_enum_bonus_is_capped              - a candidate whose S_desc is 1.0 with both enums matching
+                                           still scores exactly 1.0, never above.
   test_returns_claims_as_readonly_data   - every lesson and claim dict has readOnly is True, and
                                            _data_not_instructions is present and non-empty on the
                                            resumed, needs_confirm AND no_match shapes.
@@ -472,7 +498,7 @@ tests/test_ask.py — all use the `loci_db` fixture and seed via server.observe/
 - Whole suite green: tests/test_server.py, tests/test_persist.py, tests/test_ask.py.
 - `ask` has no `_stub`.
 - All three tools still present; `tools/list` still returns exactly three.
-- No embeddings, no LLM call, no new dependency.
+- No embeddings, no LLM call, no new dependency, no hierarchy, no weight vectors.
 
 === DONE WHEN (observable) ===
 Push the image. Then, on the LAPTOP, in ChatGPT developer mode on LOCI-gcp, describe the filter you
@@ -482,110 +508,34 @@ registered promise and the whole submission. If it works, say so out loud and im
 insurance video at 13:45 even if you are mid-thought.
 ```
 
+**Rehearsal, not code, owns 14:00–14:45 now.** Run the real valve sequence end to end at least twice
+(§4b, §4c, §4d) and write down the two scores the confirm band actually returns. One hazard created by
+cutting the merge pass: **`observe` is create-only, so every rehearsal observe of the same valve makes
+another row.** Rehearse against a throwaway `place_label` ("bench test"), or accept the duplicates and
+know the viewer will show them.
+
 ---
 
-### P3 — merge + carry (14:00–14:45)
+### P3 — CUT (14:00–14:45 is now rehearsal)
 
-```text
-You are working in ~/projects/0xl0c1. Read server.py, tests/test_ask.py, tests/test_persist.py.
+**Cut 2026-09-12** on Brian's "make it as simple as possible, the demo has to be functional", accepted
+by the CEO. P3 was the observe-merge and alias pass. Nothing in the demo observes the same object
+twice, so it bought no on-camera second. The open-question cursor people associate with this block was
+never here: `commit` already maintains `is_cursor_active` (P1) and `ask` already reads it (P2).
 
-=== HARD CONSTRAINTS (restated so this block stands alone) ===
-1. ZERO PIXELS — no image, frame, OCR or pixel embedding, ever.
-2. EXACTLY THREE TOOLS: observe, ask, commit. No fourth tool.
-3. ENUMS, NOT PROSE — constrain with types, add no steering sentences.
-4. TDD: write the listed tests first, run them RED for the right reason, implement, run GREEN.
-5. NO NEW DEPENDENCIES beyond rapidfuzz.
-6. DO NOT TOUCH infra/, scripts/, Dockerfile, .github/.
-7. BACKWARD-COMPATIBLE RETURNS: keep status, object_id, created, needs_place, matches, needs_confirm,
-   skipped, would_have_written, lesson_id, claims_persisted, cursor_active. Add keys freely.
-8. No `_stub` remains anywhere after this block.
-9. Commit after green: `git commit -m "feat(merge): ..."`.
-10. db.q() on every parameterised statement; db.tx() for every write.
+**What this slot is for now:**
 
-=== THE BLOCK ===
+1. Run the full valve sequence end to end at least twice: §4b on the phone, §4c on the laptop, §4d
+   the injection beat. Two clean passes, not one lucky one.
+2. **Write down the two scores the confirm band actually returns.** If they are not inside DELTA,
+   change the prop or the wording, never the constant (§6). §4a carries the recompute snippet.
+3. Run `commit(save=false)` out loud once and watch the viewer not change. That is the write gate,
+   and it is beat 3.
+4. Hand Jon a clean take of each beat so he can cut the real video at 14:45.
 
---- observe merges instead of duplicating ---
-Reuse the P2 scorer; do not write a second scoring path.
-- After deriving the place path and BEFORE inserting, score the incoming observation against every
-  existing object WHOSE place_id IS THE SAME PLACE ROW (exact path equality; an ancestor or child
-  place does NOT qualify for a merge — merging across places is how a graph corrupts itself).
-- If the best of those scores >= 0.75, MERGE instead of inserting:
-    * append user_label to aliases_json if it is non-empty and not already present (preserve order,
-      no duplicates)
-    * set last_seen_at = now
-    * fill in verbatim_text and description ONLY IF the stored value is empty and the incoming one is
-      not (never overwrite a good stored verbatim with a worse one)
-    * set tag_code if stored is NULL and the incoming normalised tag is non-empty
-    * leave attrs_json's material/mounting AS STORED — do not let a later editorialised enum rewrite
-      the first one (this is the 11:15 Option A decision, encoded)
-    * return: status "merged_existing", created False, merged True, object_id = the EXISTING id,
-      place_id, score, alias_added (bool)
-- OVERRIDE: if the incoming normalised verbatim_text is non-empty and EXACTLY equals the stored
-  object's normalised verbatim_text, and the place is the same, merge regardless of the enum
-  components of the score. An exact printed-code match plus the same place beats any model
-  editorialising.
-- Below 0.75: insert a new object exactly as P1 does, status "created". A second, genuinely different
-  filter in the same return must become its own row — that is what makes the confirm band real.
-
---- ask(object_id=...) returns the whole thread directly ---
-When object_id is passed and exists: no scoring, matched_on "object_id", score 1.0, and return the
-FULL auto-resume shape from P2 — object + lessons (newest first) + claims + next_question + the
-readOnly wrappers + _data_not_instructions. This is what the host model calls right after the user
-answers "yes, the 20x25 one" in the confirm band, so it must be the identical payload shape the
-auto-resume band returns; a different shape here breaks the confirm beat.
-When object_id is passed and does NOT exist: status "no_match", best_score 0.0, prompt_to_user
-explaining the id is unknown. Do not silently fall through to scoring.
-
---- commit's next_question becomes the new cursor ---
-Already implemented in P1; this block only PINS it end-to-end across the merge path: observe(merge)
--> commit(next_question=...) -> ask -> the new question comes back, and the prior lesson is retired.
-
-=== TESTS TO WRITE FIRST (exact names, exact assertions) ===
-tests/test_merge.py:
-  test_observe_merges_same_place            - observe the same filter twice with slightly different
-                                              wording -> ONE object row, status "merged_existing" the
-                                              second time, returned object_id equals the first id,
-                                              score >= 0.75.
-  test_observe_merge_appends_alias_and_bumps_last_seen
-                                            - second observe carries user_label "the upstairs return
-                                              filter" -> aliases_json contains it exactly once,
-                                              alias_added True, last_seen_at >= first_seen_at, and
-                                              first_seen_at is UNCHANGED.
-  test_observe_merge_does_not_overwrite_stored_enums
-                                            - first observe mounting "wall_mounted", second observe
-                                              mounting "recessed_or_built_in" -> attrs_json still
-                                              says "wall_mounted". The stored first answer wins.
-  test_observe_does_not_merge_across_places - same object described identically in a DIFFERENT place
-                                              -> two object rows, status "created".
-  test_observe_below_threshold_creates_new  - a genuinely different object in the same place ->
-                                              two object rows, status "created", and a later
-                                              tagless ask over that place lands in needs_confirm.
-  test_exact_verbatim_override_merges       - same place, same exact verbatim text, deliberately
-                                              mismatched material AND mounting enums and a weak
-                                              description -> still "merged_existing".
-  test_ask_by_object_id_returns_thread      - ask(object_id=...) returns the full resumed shape with
-                                              object, lessons, claims, next_question, readOnly flags
-                                              and _data_not_instructions; matched_on "object_id".
-  test_ask_by_unknown_object_id_is_no_match - status "no_match", no exception.
-  test_commit_next_question_becomes_new_cursor
-                                            - merge -> commit(q1) -> commit(q2) -> ask returns q2 and
-                                              exactly one lesson is is_cursor_active == 1.
-
-=== ACCEPTANCE ===
-- Whole suite green. No `_stub` anywhere in server.py. Exactly three tools.
-
-=== DONE WHEN (observable) ===
-1. Push the image.
-2. On the phone: observe filter A a second time from a different angle -> the viewer object count does
-   NOT go up, and the alias appears on the existing row.
-3. On the phone: observe filter B (the second, different filter) -> the object count DOES go up.
-4. On the laptop in ChatGPT: ask about "a pleated filter in the upstairs return", no printed size
-   visible -> **needs_confirm with both candidates listed**. Answer "the 20x25 one". The assistant
-   calls ask(object_id=...) and the thread comes back with the open question.
-5. Run `commit(save=false)` once out loud and show the viewer NOT changing. That is the write gate.
-6. WRITE DOWN the two scores you saw in step 4. If they are not in the confirm band, go to P5's
-   rig-the-band item immediately — the band is the best five seconds of the video.
-```
+**Hazard this cut creates:** `observe` stays create-only, so every rehearsal observe of the same valve
+writes another row and a third candidate can widen the confirm band. Rehearse against a throwaway
+`place_label` such as "bench test", or accept the duplicates and know the viewer will show them.
 
 ---
 
@@ -683,19 +633,22 @@ and the submission draft is saved. Otherwise stop and go submit.
 5. NO NEW DEPENDENCIES beyond rapidfuzz. 6. DO NOT TOUCH infra/, scripts/, Dockerfile, .github/.
 7. BACKWARD-COMPATIBLE RETURNS. 8. No `_stub`. 9. Commit as `feat(polish): ...`. 10. db.q()/db.tx().
 
-=== ITEM 1 (do this one first — it is worth more than item 2): rig the mid-band ===
-I will give you the two exact on-camera description strings from SATURDAY.md section 4a. Write
-tests/test_band_rig.py that seeds the graph exactly as the demo will (filter A with verbatim
-"20x25x1 MERV 11" and filter B with verbatim "16x25x1 MERV 8", both in "upstairs hallway return",
-each with its lesson and open question) and then asserts:
-  test_take1_description_lands_in_auto_resume  - the take-1 ask string -> status "resumed",
-                                                 score >= 0.85, delta >= 0.12.
-  test_take2_description_lands_in_confirm_band - the take-2 ask string -> status "needs_confirm",
-                                                 both objects in candidates, top score in
-                                                 [0.60, 0.85) OR delta < 0.12.
+=== ITEM 1 (do this one first — it is worth more than item 2): rig the band ===
+I will give you the two exact on-camera strings from SATURDAY.md section 4a. Write
+tests/test_band_rig.py that seeds the graph exactly as the demo will — valve A with verbatim
+"3/4 600 WOG NSF-61 APOLLO", valve B with verbatim "1/2 CSA 600WOG", BOTH in "basement utility
+closet", both metal_brass_or_bronze and wall_mounted, each with its lesson and open question — and
+then asserts:
+  test_take1_stamp_resumes_valve_a      - the take-1 ask (verbatim = A's stamp, no description) ->
+                                          status "resumed", matched_on "verbatim_text", A's object_id.
+  test_take2_description_confirms       - the take-2 ask (no verbatim, generic description) ->
+                                          status "needs_confirm", both objects in candidates,
+                                          top >= MIN_SCORE and delta < DELTA.
+Import MIN_SCORE / DELTA / VERBATIM_HIT from server rather than hard-coding 0.60 / 0.12 / 0.90, so
+the test breaks loudly if anyone edits a constant.
 If either fails, DO NOT move a threshold. Thresholds are the spec and a judge can read them. Change
-the WORDING of the on-camera description in SATURDAY.md section 4a until the test passes, then tell me
-the new wording so I can rehearse it. Rigging the prop is honest; rigging the constant is not.
+the PROP or the WORDING in SATURDAY.md section 4a until the test passes, then tell me the new wording
+so I can rehearse it. Rigging the prop is honest; rigging the constant is not.
 
 === ITEM 2: pg_trgm behind a flag ===
 Add an env flag LOCI_TEXT_ENGINE with values "rapidfuzz" (default) and "pg_trgm". Under "pg_trgm" AND
@@ -740,62 +693,72 @@ verbatim strings:
 | A | `3/4 600 WOG NSF-61 APOLLO` | `3/4 inch brass ball valve, red lever handle, on the copper main water line` |
 | B | `1/2 CSA 600WOG` | `1/2 inch brass ball valve, red lever handle, on the branch line` |
 
-Ball valve bodies are cast with size, pressure class (`600 WOG`) and usually a brand or listing mark
-(`APOLLO`, `NIBCO`, `CSA`, `NSF-61`). **Two valves from the same maker carry the same stamp except
-the size digits, and that does NOT separate:** `3/4 600 WOG` vs `1/2 600 WOG` gives S_text 0.82,
-Δ = 0.082 < 0.12, and take 1 drops into the confirm band. The twin must therefore be a *different
-product* (different brand or listing marks), which is what a real closet has anyway. Never move the
-threshold (§6). If the two real stamps are near-identical, swap prop B for a valve of another brand or
-type (a 1/2" gate valve or compression stop is fine), or read the brand off A on camera.
+Both live in **basement utility closet**, both `metal_brass_or_bronze`, both `wall_mounted`. The
+engine (P2, simplified 2026-09-12) filters to that exact place, then either hits on the stamp or
+scores on the description. Three published constants: `VERBATIM_HIT = 0.90`, `MIN_SCORE = 0.60`,
+`DELTA = 0.12`.
 
 Recompute with the real strings in ten seconds:
 
 ```bash
 uv run --with rapidfuzz python -c "
-from rapidfuzz.distance import DamerauLevenshtein as D; from rapidfuzz import fuzz
-a,b='3/4 600 WOG NSF-61 APOLLO','1/2 CSA 600WOG'      # <- the two real stamps, casefold happens below
-da='3/4 inch brass ball valve, red lever handle, on the copper main water line'
-db='1/2 inch brass ball valve, red lever handle, on the branch line'
-q='3/4 inch brass ball valve with a red lever handle on the copper main'
-st=D.normalized_similarity(a.casefold(),b.casefold())
-sa,sb=fuzz.token_set_ratio(q,da)/100,fuzz.token_set_ratio(q,db)/100
-A=.35+.25+.10+.10+.20*sa; B=.35*st+.25+.10+.10+.20*sb
-print(f'take1 A={A:.3f} B={B:.3f} delta={A-B:.3f}  (need >=0.12)')"
+from rapidfuzz import fuzz
+n=lambda s:' '.join(s.casefold().split())
+av,bv='3/4 600 WOG NSF-61 APOLLO','1/2 CSA 600WOG'          # <- the two REAL stamps
+ad='3/4 inch brass ball valve, red lever handle, on the copper main water line'
+bd='1/2 inch brass ball valve, red lever handle, on the branch line'
+q1=av                                                        # take 1: Ivan reads the stamp
+q2='brass ball valve with a red lever handle'                # take 2: stamp not visible
+va,vb=[fuzz.token_set_ratio(n(q1),n(x))/100 for x in (av,bv)]
+sa,sb=[min(1.0,fuzz.token_set_ratio(n(q2),n(x))/100+0.10) for x in (ad,bd)]
+print(f'take1 verbatim A={va:.3f} B={vb:.3f} -> hits>=0.90: {sum(v>=0.90 for v in (va,vb))} (need exactly 1)')
+print(f'take2 score    A={sa:.3f} B={sb:.3f} delta={abs(sa-sb):.3f} (need <0.12, top>=0.60)')"
 ```
 
-**TAKE 1 — should AUTO-RESUME (score ≥ 0.85, Δ ≥ 0.12).** Hold the body to the camera, stamp up:
+**TAKE 1 — should AUTO-RESUME via the verbatim short-circuit.** Hold the body to the camera, stamp up:
 
 > "I'm back at the three-quarter brass ball valve in the basement utility closet. Body says
 > three-quarter, 600 WOG, NSF-61, Apollo. What did I leave open on this one?"
 
-Why it resumes, W_FULL (`0.35·text + 0.25·place + 0.10·material + 0.10·mounting + 0.20·desc`):
+Why it resumes: no scoring pass at all. The stamp is compared to each candidate's stored verbatim and
+exactly one clears `VERBATIM_HIT`.
 
-| | S_text | S_place | S_mat | S_mount | S_desc | score |
-|---|---|---|---|---|---|---|
-| A | 1.00 | 1.0 | 1.0 | 1.0 | 0.90 | **0.980** |
-| B | 0.20 | 1.0 | 1.0 | 1.0 | 0.81 | 0.682 |
+| Prop | verbatim similarity to the spoken stamp | ≥ 0.90? |
+|---|---|---|
+| A | **1.00** | yes |
+| B | 0.41 | no |
 
-Δ = 0.298. Clears 0.12 with room. (Same-brand stamps: B's S_text rises to 0.82, Δ falls to 0.082,
-and you are in the confirm band. That is the whole reason the twin is a different product.)
+Exactly one hit, so A resumes with `matched_on: "verbatim_text"`. Margin is 0.30, and it survives the
+model paraphrasing the stamp: re-ordered (`600 WOG NSF-61 APOLLO 3/4`) still scores A 1.00/B 0.41, and
+dropping a token (`3/4 600 WOG APOLLO`) scores A 1.00/B 0.50.
 
-**TAKE 2 — should land in the CONFIRM band (Δ < 0.12).** Ivan is under the subfloor; the camera
-sees a brass body and a red lever, not the stamp:
+**Same-maker warning, now sharper.** If both valves are stamped `NSF-61 APOLLO` and differ only in the
+size digits, B scores **0.92** against A's stamp. Two hits clear 0.90, the short-circuit deliberately
+does NOT fire, and take 1 degrades into the confirm band. That is a graceful failure, not a wrong
+answer, and it is worth saying out loud if it happens. But the take is better with a different-brand
+twin, which a real closet has anyway. Never move a threshold (§6); change the prop.
+
+**TAKE 2 — should land in the CONFIRM band.** Ivan is under the subfloor; the camera sees a brass
+body and a red lever, not the stamp:
 
 > "Brass ball valve, red lever, basement utility closet. I'm under the subfloor and can't read the
 > stamp. Which one is this?"
 
-Why it confirms: no verbatim text on the query side, so W_NO_TEXT applies
-(`0.40·place + 0.15·material + 0.15·mounting + 0.30·desc`), both valves sit in the *same* place with
-nearly the same description:
+No verbatim, so the short-circuit cannot fire and both valves are scored on description alone, plus
+the 0.05 + 0.05 enum bonus they both earn (`score = min(1, S_desc + 0.05·material + 0.05·mounting)`):
 
-| | S_place | S_mat | S_mount | S_desc | score |
-|---|---|---|---|---|---|
-| A | 1.0 | 1.0 | 1.0 | 0.64 | 0.892 |
-| B | 1.0 | 1.0 | 1.0 | 0.67 | 0.902 |
+| | S_desc | +material | +mounting | score |
+|---|---|---|---|---|
+| A | 0.667 | 0.05 | 0.05 | **0.767** |
+| B | 0.680 | 0.05 | 0.05 | **0.780** |
 
-Top 0.90 ≥ 0.85 and Δ = 0.01 < 0.12: the server refuses to guess. Note B may come out on top by a
-hair, so `prompt_to_user` may name the 1/2" first. Either order is correct; `candidates` carries both.
-The line you are buying:
+Top 0.780 clears `MIN_SCORE` 0.60 and Δ = **0.013**, far inside `DELTA` 0.12: the server refuses to
+guess. The margin holds across phrasings — the four wordings tested gave Δ of 0.013, 0.003, 0.021 and
+0.077, all under 0.12. For contrast, an unrelated object scores 0.32 to 0.44, comfortably below
+`MIN_SCORE`, so "no record of this" and "which of these two" stay distinct outcomes.
+
+Note B may come out on top by a hair, so `prompt_to_user` may name the 1/2" first. Either order is
+correct; `candidates` carries both. The line you are buying:
 
 > *"I see two valves in the basement utility closet: the 3/4-inch brass ball valve on the main and
 > the 1/2-inch on the branch line. Which one is Ivan on?"*
@@ -805,9 +768,12 @@ Say the next sentence out loud, to camera, because it is the whole architecture:
 > *"That's not a bug. If an AI guesses in plumbing, you flood a basement with city water at 80 PSI.
 > It refused to guess. It asked the tradesman."*
 
-**Fallback prop if the twins do not confirm:** put both valves in the *same* place with the *same*
-description and no stamp read on the query; place-dominated scoring makes Δ collapse. Verify at 14:00
-either way (P3 done-when, step 6).
+Brian answers, the assistant calls `ask(object_id=...)`, and the thread comes back with the open
+question. That resolution path is `test_object_id_short_circuits` in P2 — it is tested, not hoped for.
+
+**Fallback prop if the twins do not confirm:** give both valves the *same* stored description and read
+no stamp on the query. Identical descriptions drive Δ to 0 and the confirm band is forced. Verify at
+14:00 either way (§3, the rehearsal slot that replaced P3).
 
 ### 4b. Phone script — Ivan, Claude on `LOCI-gcp` (observe → commit)
 
@@ -1052,11 +1018,15 @@ Other live risks, from the deploy plan:
 - **No pgvector, no embedding model, no LLM arbiter.** The arbiter directly contradicts the
   user-as-oracle design, and there are no visual vectors to index.
 - **No threshold tuning to make a demo land.** Change the prop or the wording, never the constant.
-  Thresholds are published in the README and a judge can read them.
+  `VERBATIM_HIT = 0.90`, `MIN_SCORE = 0.60`, `DELTA = 0.12` are published in the README and a judge
+  can read them.
+- **The 2026-09-12 simplification was a SCOPE decision, not permission to move a number.** Cutting
+  hierarchy, the weight vectors and the merge pass made the engine smaller. It did not license
+  nudging a constant so a take lands. The two rules compose: build less, and still never tune.
 - **No pushes to Cloud Run (or App Runner) during a recorded take.** Stateless HTTP keeps the connector
   alive, but a revision swap mid-call is a retake.
 - **No new implementation before 11:15**, and no touching `infra/`, `scripts/` or the `Dockerfile`
-  during P1–P3.
+  during P1–P2.
 - **No building after 15:30.** Show-and-tell runs 15:30–16:30 and submission closes at 17:00. At 15:30
   the code is whatever it is.
 - **Do not skip the 13:45 insurance video** to keep coding. Every year, someone does. Do not be that.
