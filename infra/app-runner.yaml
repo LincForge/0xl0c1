@@ -9,8 +9,18 @@ Parameters:
       App Runner-supported AZs only (us-west-2 excludes usw2-az4); bootstrap_aws.sh filters.
   ImageTag: {Type: String, Default: latest}
   CreateService: {Type: String, AllowedValues: ['true', 'false'], Default: 'true'}
+  AmbiguousApiKeySecretArn:
+    Type: String
+    Default: ''
+    Description: Optional Secrets Manager ARN containing AMBIGUOUS_API_KEY.
+  AmbiguousSheetIdSecretArn:
+    Type: String
+    Default: ''
+    Description: Optional Secrets Manager ARN containing LOCI_AMBIGUOUS_SHEET_ID.
 Conditions:
   ShouldCreateService: !Equals [!Ref CreateService, 'true']
+  HasAmbiguousApiKey: !Not [!Equals [!Ref AmbiguousApiKeySecretArn, '']]
+  HasAmbiguousSheetId: !Not [!Equals [!Ref AmbiguousSheetIdSecretArn, '']]
 Resources:
   Repo:
     Type: AWS::ECR::Repository
@@ -99,6 +109,8 @@ Resources:
             RuntimeEnvironmentSecrets:
               - {Name: LOCI_DB_SECRET, Value: !GetAtt Db.MasterUserSecret.SecretArn}
               - {Name: LOCI_PATH_TOKEN, Value: !Ref PathToken}
+              - !If [HasAmbiguousApiKey, {Name: AMBIGUOUS_API_KEY, Value: !Ref AmbiguousApiKeySecretArn}, !Ref 'AWS::NoValue']
+              - !If [HasAmbiguousSheetId, {Name: LOCI_AMBIGUOUS_SHEET_ID, Value: !Ref AmbiguousSheetIdSecretArn}, !Ref 'AWS::NoValue']
 Outputs:
   ServiceUrl: {Condition: ShouldCreateService, Value: !GetAtt Service.ServiceUrl}
   ServiceArn: {Condition: ShouldCreateService, Value: !GetAtt Service.ServiceArn}
