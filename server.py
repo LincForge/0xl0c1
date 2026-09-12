@@ -539,6 +539,32 @@ def ask(
         return _resume(conn, best, "score", top, delta)
 
 
+_CONFIDENCE_WORDS = {
+    "certain": 0.95, "very high": 0.95, "high": 0.9, "likely": 0.75, "probable": 0.75,
+    "medium": 0.6, "moderate": 0.6, "unsure": 0.4, "low": 0.3, "unlikely": 0.2, "guess": 0.2,
+}
+
+
+def _coerce_confidence(value) -> float | None:
+    """Never crash a commit over a confidence value. Numbers clamp to 0..1; words map; junk -> None.
+
+    2026-09-12 live test: the host model sent confidence="high" twice and commit raised ValueError.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return max(0.0, min(1.0, float(value)))
+    text = str(value).strip().lower().rstrip("%").strip()
+    if text in _CONFIDENCE_WORDS:
+        return _CONFIDENCE_WORDS[text]
+    try:
+        n = float(text)
+    except ValueError:
+        log.warning("LOCI commit confidence unparseable value=%r -> None", value)
+        return None
+    return max(0.0, min(1.0, n / 100.0 if n > 1.0 else n))
+
+
 @mcp.tool
 @_logged("commit")
 def commit(
@@ -631,7 +657,7 @@ def commit(
                     new_id(),
                     lesson_id,
                     str(c["text"]).strip(),
-                    float(conf) if conf is not None else None,
+                    _coerce_confidence(conf),
                 ),
             )
         conn.execute(

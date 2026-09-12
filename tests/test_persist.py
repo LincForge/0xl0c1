@@ -239,3 +239,26 @@ def test_commit_logs_and_warns_on_skips_and_unknown_object(loci_db, server_mod, 
         "unknown_object" in r.getMessage() and "does-not-exist" in r.getMessage()
         for r in warns
     )
+
+
+def test_commit_tolerates_word_confidence(loci_db, server_mod):
+    """Live 2026-09-12: the host model sent confidence='high' twice and commit crashed. Never again."""
+    assert server_mod._coerce_confidence("high") == 0.9
+    assert server_mod._coerce_confidence("Medium") == 0.6
+    assert server_mod._coerce_confidence("85%") == 0.85
+    assert server_mod._coerce_confidence(1.7) == 1.0
+    assert server_mod._coerce_confidence("garbage") is None
+    oid = _observe(server_mod)["object_id"]
+    r = _commit(
+        server_mod,
+        oid,
+        claims=[
+            {"text": "shutoff leaking on the left", "confidence": "high"},
+            {"text": "nut needs replacement", "confidence": "garbage"},
+        ],
+    )
+    assert r["status"] == "committed"
+    assert r["claims_persisted"] == 2 and r["claims_skipped"] == 0
+    stored = {c["text"]: c["confidence"] for c in loci_db.rows("SELECT text, confidence FROM claim")}
+    assert stored["shutoff leaking on the left"] == 0.9
+    assert stored["nut needs replacement"] is None
