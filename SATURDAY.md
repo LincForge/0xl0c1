@@ -7,11 +7,11 @@ components, libraries, **prompts**, starter code" — it does not permit brought
 So nothing here is implementation code. Paste the blocks in order; they are written to be executed by
 a Claude Code session that has only this repo and the block, with no follow-up questions.
 
-Hosting is the cloud: **Google Cloud Run + Cloud SQL Postgres 16 in project `loci-0xl0c1` (`us-west1`),
-reachable at the MCP URL in `.loci-gcp-url`** (a `run.app` host; connector name `LOCI-gcp`). The AWS
-App Runner stack (`loci.lincspace.ai`, connector `LOCI-cloud`, URLs in `.loci-cloud-url`) stays live as
-the fallback. **The two stacks are separate graphs with separate tokens.** The laptop Funnel stays
-registered as connector #3.
+Hosting is the cloud: **AWS App Runner + RDS Postgres 16 in `us-west-2` at
+`loci.lincspace.ai`**, using connector `LOCI-cloud` and the capability URLs in `.loci-cloud-url`.
+The optional Google Cloud Run stack, when provisioned, is a separate graph with its own database and
+token; it is not the public `loci.lincspace.ai` deployment. The laptop Funnel remains the first
+fallback.
 
 ---
 
@@ -22,12 +22,12 @@ Tick every line. Anything red here costs you the 11:15 block.
 | # | Check | Command / action | Pass looks like |
 |---|---|---|---|
 | M1 | Laptop on power, phone charged, phone on **cellular** (not venue wifi) | — | — |
-| M2 | Cloud URLs at hand | `cat .loci-gcp-url` (primary) and `cat .loci-cloud-url` (AWS fallback) | `MCP=https://loci-<hash>-uw.a.run.app/loci-<token>/mcp` and the `loci.lincspace.ai` line |
-| M3 | **Cloud Run is alive** (primary) | `curl -fsS $(grep ^HEALTH= .loci-gcp-url \| cut -d= -f2-)` | `{"ok":true,"backend":"postgres","db":"ok"}` |
-| M4 | Viewer opens on the laptop, second browser window, kept visible all day | open the `VIEWER=` URL from `.loci-gcp-url` | four empty tables |
-| M5 | **`LOCI-gcp`** registered in claude.ai connectors **and** in ChatGPT developer mode (ChatGPT still points at AWS from Friday: add the Cloud Run URL there now) | Settings → Connectors | both list the tools on `LOCI-gcp` |
-| M6 | **`LOCI-cloud`** (AWS) still registered as fallback #2, **`LOCI-laptop`** as fallback #3 | `curl -s https://loci.lincspace.ai/health`; `./run.sh --public` if the laptop one is down | AWS health `db: ok`; laptop connector URL printed |
-| M7 | Phone-on-cellular handshake | in the Claude **phone** app: "list the tools on LOCI-gcp" | `observe`, `ask`, `commit` |
+| M2 | Cloud URLs at hand | `cat .loci-cloud-url` | health, viewer and MCP URLs use `loci.lincspace.ai` |
+| M3 | **App Runner is alive** (primary) | `curl -fsS https://loci.lincspace.ai/health` | `{"ok":true,"backend":"postgres","db":"ok"}` |
+| M4 | Viewer opens on the laptop, second browser window, kept visible all day | open the `VIEWER=` URL from `.loci-cloud-url` | four tables |
+| M5 | **`LOCI-cloud`** registered in claude.ai connectors **and** in ChatGPT developer mode | Settings → Connectors | both list the tools on `LOCI-cloud` |
+| M6 | **`LOCI-laptop`** registered as fallback #2 | `./run.sh --public` if the cloud path is down | laptop connector URL printed |
+| M7 | Phone-on-cellular handshake | in the Claude **phone** app: "list the tools on LOCI-cloud" | `observe`, `ask`, `commit` |
 | M8 | Repo clean at the disclosure tag | `git status --short && git tag -l` | clean; `brought-2026-09-11` present |
 | M9 | **If M8 has no `brought-2026-09-11`** — create it now, before 11:15 | `git tag brought-2026-09-11 && git push --tags` | tag on the last Friday commit |
 | M10 | Tests green on the brought surface | `uv run pytest -q` | all pass |
@@ -35,11 +35,11 @@ Tick every line. Anything red here costs you the 11:15 block.
 | M12 | **If M11 fails** — add it now. A library is explicitly brought-legal; do not do this at 12:15 on venue wifi | `uv add rapidfuzz && uv run pytest -q && git commit -am "chore: rapidfuzz dependency"` | lock updated |
 | M13 | Props on the table | filter A (`20x25x1 MERV 11`), filter B (`16x25x1 MERV 8`), the unidentifiable valve, two printed Crockford labels, one printed **injection** label | all four in reach of the camera |
 | M14 | Docker can build amd64 (needed for every cloud push) | `docker run --rm --platform linux/amd64 python:3.12-slim uname -m` | `x86_64` |
-| M15 | gcloud session live (primary) | `gcloud auth list --filter=status:ACTIVE --format='value(account)'; gcloud run services describe loci --project loci-0xl0c1 --region us-west1 --format='value(status.url)'` | your account; the `run.app` URL |
-| M16 | **Cloud Run redeploy one-liner works end-to-end once**, before you need it | `IMAGE_ONLY=1 EXPECTED_PROJECT=loci-0xl0c1 ./scripts/bootstrap_gcp.sh` | new revision serving 100%, `/health` still `db: ok`, ~3 min |
-| M16b | AWS fallback session live | `AWS_PROFILE=linc aws sts get-caller-identity --query Account --output text`; `curl -s $(grep ^HEALTH= .loci-cloud-url \| cut -d= -f2-)` | `520646548387`; `db: ok`. Redeploy there is `docker build --platform linux/amd64 -t $REPO_URI:latest . && docker push $REPO_URI:latest` (~3 min to RUNNING) |
+| M15 | AWS session live (primary) | `AWS_PROFILE=linc aws sts get-caller-identity --query Account --output text`; `curl -fsS https://loci.lincspace.ai/health` | expected account; `db: ok` |
+| M16 | **App Runner redeploy path is known**, before you need it | use `REPO_URI` from `.loci-cloud-url`: build `--platform linux/amd64`, tag `:latest`, then push | App Runner returns to `RUNNING`; `/health` says `db: ok` |
+| M16b | Optional Cloud Run path | only if deliberately using the separate GCP graph: `IMAGE_ONLY=1 EXPECTED_PROJECT=loci-0xl0c1 ./scripts/bootstrap_gcp.sh` | its independent `run.app` health says `db: ok` |
 | M17 | **Organisers' starter repo / sponsor credits** — the handbook says these appear before build day | check the event page + Slack | if a scaffold exists, note whether using it is *expected*; if sponsor credits exist, claim them but do not re-architect around them |
-| M19 | **Optional, only if M1–M18 are all green:** custom domain on Cloud Run (`loci.lincspace.ai` still points at AWS; Cloud Run domain mapping needs Search Console verification of `lincspace.ai`) | skip unless bored | the `run.app` URL is fine on camera |
+| M19 | **Optional, only if M1–M18 are all green:** rehearse the separate Cloud Run fallback | skip unless it is already provisioned | its `run.app` URL works without changing the AWS custom domain |
 | M20 | **Beadhive seats** (see `projects/ideas/0xl0c1/BEADHIVE-CHEATSHEET.md` in LINC) | `bh setup check` in `~/workspace/github/LincForge/0xl0c1`, then `bh work ready` | 4/4 green; bead `bd_0xl0c1-cz0` (P1) listed. File P2–P5 as beads. 15-minute bail-out rule: if `bh` blocks either of you, drop to the plain prompts in §3 |
 | M18 | Screen recorder tested (audio levels, phone mirroring), two takes of "hello" | — | audio audible over room noise |
 
@@ -294,9 +294,9 @@ Also: tests/test_server.py must still pass unmodified. Run the whole suite.
 - No new dependency. No new tool. infra/, scripts/, Dockerfile untouched.
 
 === DONE WHEN (observable, not asserted) ===
-1. `IMAGE_ONLY=1 EXPECTED_PROJECT=loci-0xl0c1 ./scripts/bootstrap_gcp.sh`, wait for the new Cloud Run
-   revision to serve 100% (~3 min). `/health` still says `backend: postgres, db: ok`.
-2. From the phone, in Claude on LOCI-gcp: observe the furnace filter, then commit a lesson.
+1. Build and push the `linux/amd64` image to the `REPO_URI` in `.loci-cloud-url`, then wait for App
+   Runner to return to `RUNNING` (~3 min). `/health` still says `backend: postgres, db: ok`.
+2. From the phone, in Claude on LOCI-cloud: observe the furnace filter, then commit a lesson.
 3. The cloud viewer at `<cloud-url>/` shows a place row, an object row, a lesson row with the open
    question in the highlighted column, and claim rows — WITHOUT a page refresh trick, just reload.
 4. And by curl, as the belt-and-braces proof:
@@ -501,9 +501,9 @@ tests/test_ask.py — all use the `loci_db` fixture and seed via server.observe/
 - No embeddings, no LLM call, no new dependency, no hierarchy, no weight vectors.
 
 === DONE WHEN (observable) ===
-Push the image. Then, on the LAPTOP, in ChatGPT developer mode on LOCI-gcp, describe the filter you
+Push the image. Then, on the LAPTOP, in ChatGPT developer mode on LOCI-cloud, describe the filter you
 observed FROM THE PHONE IN CLAUDE during P1 — and ChatGPT comes back with the lesson, the claims and
-the open question. Different assistant, different device, same Cloud SQL row. That single interaction is the
+the open question. Different assistant, different device, same RDS row. That single interaction is the
 registered promise and the whole submission. If it works, say so out loud and immediately go cut the
 insurance video at 13:45 even if you are mid-thought.
 ```
@@ -586,9 +586,9 @@ Also add/refresh:
     are explicitly trained to discard the micro-scratches that would separate them. Amazon Partpic,
     Sortly and Encircle all retreated from visual clustering to manual hierarchies plus labels. The
     confirmation prompt is the mechanism, not an apology.
-  * ARCHITECTURE: zero-pixel server; Google Cloud Run + Cloud SQL Postgres 16 in us-west1, one warm
-    instance, stateless HTTP, capability-URL auth; the same image runs on AWS App Runner + RDS as the
-    fallback, and the same Python engine runs against SQLite on a laptop with no code change.
+  * ARCHITECTURE: zero-pixel server; AWS App Runner + RDS Postgres 16 in us-west-2, one warm
+    instance, stateless HTTP, capability-URL auth; the same image can run on Cloud Run + Cloud SQL,
+    and the same Python engine runs against SQLite on a laptop with no code change.
   * CONNECT: Claude custom connectors work on Free (one connector), Pro and Max, including mobile;
     ChatGPT needs Plus/Pro with developer mode; Gemini and Grok cannot attach.
   * TEAR-DOWN: the delete-stack one-liner.
@@ -668,8 +668,8 @@ Say exactly that on camera if asked.
 ## 4. Human-side scripts
 
 Two people, two devices, one graph. **Faust = Ivan the Plumber** in the field (overalls, hard hat,
-14" pipe wrench, Claude app on cellular via `LOCI-gcp`). **Brian = Shop Dispatch** at the laptop
-(ChatGPT developer mode on the same connector, the Cloud Run viewer from `.loci-gcp-url` open beside it). Ivan never types.
+14" pipe wrench, Claude app on cellular via `LOCI-cloud`). **Brian = Shop Dispatch** at the laptop
+(ChatGPT developer mode on the same connector, the App Runner viewer from `.loci-cloud-url` open beside it). Ivan never types.
 Brian never types SQL.
 
 ### 4a. The two on-camera object descriptions
@@ -775,7 +775,7 @@ question. That resolution path is `test_object_id_short_circuits` in P2 — it i
 no stamp on the query. Identical descriptions drive Δ to 0 and the confirm band is forced. Verify at
 14:00 either way (§3, the rehearsal slot that replaced P3).
 
-### 4b. Phone script — Ivan, Claude on `LOCI-gcp` (observe → commit)
+### 4b. Phone script — Ivan, Claude on `LOCI-cloud` (observe → commit)
 
 Point the phone camera at prop A, stamp up. Speak, do not type. Cellular, not venue wifi.
 
@@ -799,9 +799,9 @@ Point the phone camera at prop A, stamp up. Speak, do not type. Cellular, not ve
 3. It calls `commit(save=true, next_question=...)`. Ivan calls across the room; Brian points at the
    viewer and says:
 
-   > "That's the actual row. Place, object, lesson, claims, open question. On Cloud SQL, in Oregon."
+   > "That's the actual row. Place, object, lesson, claims, open question. On RDS, in Oregon."
 
-**If the assistant does not call the tool:** say *"use the LOCI-gcp connector"* explicitly. Do not
+**If the assistant does not call the tool:** say *"use the LOCI-cloud connector"* explicitly. Do not
 argue with it on camera. Cut and retake.
 
 ### 4c. Laptop script — Brian at Dispatch, ChatGPT (the return visit)
@@ -908,7 +908,7 @@ the **14:45 real cut**. Shoot the real cut in one take per segment; assemble, do
 | **0:45** | Phone, still Claude | 4b step 2, commit with the expansion-tank question. Cut to the laptop viewer: the row lands. Brian: "That's the actual row." |
 | **1:00** | Ivan under the table, wrench. Hard cut to **laptop, ChatGPT**, Brian | Brian: "Different device. Different company's model. Same closet." → 4c step 0 and 1. |
 | **1:30** | The confirm band, viewer in frame | ChatGPT: *"the 3/4-inch on the main or the 1/2-inch on the branch line?"* → Ivan: "The three-quarter one." → the thread resumes with the open question. Brian reads it out. |
-| **1:45** | Ivan to camera, limits stated | "We never touch a pixel. A vision model describes the object in words. We match on that text, the place, the material and the orientation it's mounted in, and when we're not sure we ask, because a third to a half of what you own is an identical twin of something else you own, and no vision model gets past that. This runs on Google Cloud Run and Cloud SQL Postgres in us-west1. The same image runs on AWS App Runner, and on SQLite on my laptop, with nothing changed." |
+| **1:45** | Ivan to camera, limits stated | "We never touch a pixel. A vision model describes the object in words. We match on that text, the place, the material and the orientation it's mounted in, and when we're not sure we ask, because a third to a half of what you own is an identical twin of something else you own, and no vision model gets past that. This runs on AWS App Runner and RDS Postgres in us-west-2. The same image can run on Cloud Run, and on SQLite on my laptop, with nothing changed." |
 | **2:00** | End card | Repo URL, `0xL0C1`, Apache-2.0. |
 
 The dry run (4c step 3) and the injection tag (4d) are show-and-tell beats, not video beats: the
@@ -931,14 +931,14 @@ push an image during a take.**
 > description against the graph and resumes the thread — on a different device, in a different
 > company's assistant. The server never touches a pixel: a vision model describes the object in words
 > and we match on that text plus the place, and when two candidates are close we ask instead of
-> guessing. Hosted on Google Cloud Run + Cloud SQL Postgres. Apache-2.0.
+> guessing. Hosted on AWS App Runner + RDS Postgres. Apache-2.0.
 
 **X post** (post only after the loop works; verify every handle against the gated event page first):
 
 > 0xL0C1: memory lives on the object, not the app.
 >
 > Point your phone at something you own. Learn something. Three MCP tools write it to a graph on
-> Cloud SQL Postgres behind Cloud Run, including the question you left open.
+> RDS Postgres behind AWS App Runner, including the question you left open.
 >
 > New session, different device, ChatGPT instead of Claude: point again, and it resumes. When two
 > filters look the same it asks which one, because a third of what you own is an identical twin of
@@ -969,7 +969,7 @@ push an image during a take.**
 > that would tell them apart. Every product that tried to automate this retreated to manual labels.
 > So the confirmation prompt is the mechanism, not an apology for one.
 >
-> Three MCP tools, four tables, zero pixels ever reaching the server, running on Cloud Run + Cloud SQL Postgres.
+> Three MCP tools, four tables, zero pixels ever reaching the server, running on AWS App Runner + RDS Postgres.
 > Apache-2.0, repo below.
 >
 > Thanks to @AI Tinkerers, @OpenAI, @CopilotKit, @OpenRouter, @Exa, @Auth0, @AmbiguousAI, @Triggerdotdev, @Mozilla, and Google Cloud Run for the day.
@@ -984,17 +984,16 @@ Climb down one rung at a time. Each rung is a demo that still scores; only the l
 
 | Rung | When | Action | What the demo loses |
 |---|---|---|---|
-| **1. Cloud Run (`LOCI-gcp`, `.loci-gcp-url`)** | default | — | nothing |
-| **1b. Cloud Run on SQLite** | `/health` says `backend: postgres, db: error` — Cloud SQL unreachable, socket not mounted, secret wrong | **`LOCI_DATABASE_URL` unset ⇒ SQLite, and nothing else in the code changes.** `gcloud run services update loci --project loci-0xl0c1 --region us-west1 --remove-secrets LOCI_DATABASE_URL`. Keep `min-instances 1`: SQLite lives on the instance disk, so a scale-to-zero would wipe the graph. Say it on camera: *"the engine is written once in Python; the database is storage."* | the "real Postgres" line. Keep the Cloud Run line — it is still true. |
-| **2. AWS App Runner (`LOCI-cloud`, `loci.lincspace.ai`, `.loci-cloud-url`)** | Cloud Run itself is down or a push wedged it, and `curl -s https://loci.lincspace.ai/health` says `db: ok` | Re-point the phone and ChatGPT at the already-registered `LOCI-cloud` connector. **It is a separate graph with its own token** — whatever was observed on Cloud Run before the switch is not there. Redo the observe on camera; say plainly it is a second database. Redeploy there: `docker build --platform linux/amd64 -t $REPO_URI:latest . && docker push $REPO_URI:latest` (`REPO_URI` in `.loci-cloud-url`). | the shared-graph continuity from earlier takes. You gain the custom domain. The cross-assistant beat still works. |
-| **3. Laptop Funnel (`LOCI-laptop`)** | both clouds unreachable, or both wedged mid-push | `./run.sh --public`, re-point the phone at the already-registered `LOCI-laptop` connector | the cloud story. The cross-assistant beat still works — ChatGPT can reach a Funnel URL too. |
+| **1. AWS App Runner (`LOCI-cloud`, `loci.lincspace.ai`, `.loci-cloud-url`)** | default | — | nothing |
+| **2. Cloud Run (`LOCI-gcp`, `.loci-gcp-url`)** | AWS is down and the separate GCP graph is already provisioned and healthy | Re-point both assistants to `LOCI-gcp` and redo the observe; the graphs do not replicate. | continuity from the AWS graph; the cross-assistant beat still works |
+| **3. Laptop Funnel (`LOCI-laptop`)** | cloud unreachable or wedged mid-push | `./run.sh --public`, re-point the phone at the already-registered `LOCI-laptop` connector | the cloud story. The cross-assistant beat still works — ChatGPT can reach a Funnel URL too. |
 | **4. Local, single-machine** | venue network hostile (captive portal, blocked outbound, NAT) | `./run.sh` on the tailnet + Claude Desktop/Claude Code on the same laptop as the second "assistant" | the *different-device* half of the cross-assistant beat. Say plainly which half you are showing. Do not imply otherwise. |
 | **5. The insurance video** | anything catastrophic after 13:45 | the cut you already uploaded at 13:45 and already pasted into the draft submission | the polish. You still have a submission. **This is why 13:45 is non-negotiable.** |
 
 Other live risks, from the deploy plan:
 
-- **Cloud SQL or the socket mount slow** — `scripts/bootstrap_gcp.sh` is idempotent; re-run it after
-  lunch, keep working on SQLite meanwhile. Same for the AWS script if the fallback needs it.
+- **RDS or the VPC path is unhealthy** — inspect the App Runner and security-group path, then use an
+  already-provisioned fallback rather than debugging infrastructure during the take.
 - **Image push mid-take** — stateless HTTP keeps connectors alive, but freeze pushes during takes.
 - **Billing alarm email** — expected on BOTH accounts (AWS: the $10 alarm; Google: LINC Innovations
   billing, ~$20/month for Cloud Run min-instances 1 + Cloud SQL micro). Acknowledge, do not act.

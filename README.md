@@ -77,7 +77,7 @@ purpose:
 - the `/health` route, the capability path mount, and `stateless_http=True`
 - `db.py` — SQLite/Postgres connect, schema apply, health ping. Plumbing; no tool logic.
 - the `Dockerfile`
-- the Cloud Run bootstrap script, and the CloudFormation template + bootstrap script for the AWS fallback,
+- the CloudFormation template + AWS bootstrap scripts, and the alternate Cloud Run bootstrap script,
   reused from an earlier LINC project (`f3-nation-mcp`)
 - contract tests that pin the *stub* surface (health route, capability path, exactly three tools,
   Postgres DDL mirrors SQLite)
@@ -212,11 +212,13 @@ small-embedding similarity on the description.
 ```mermaid
 flowchart LR
   A["Host assistant<br/>(Claude / ChatGPT)<br/>vision model → text"]
-  B["FastMCP on Google Cloud Run<br/>us-west1 · stateless HTTP"]
-  C[("Cloud SQL PostgreSQL 16<br/>4 tables")]
+  V["Browser<br/>graph viewer"]
+  B["loci.lincspace.ai<br/>AWS App Runner · us-west-2<br/>FastMCP · stateless HTTP"]
+  C[("Amazon RDS PostgreSQL 16<br/>private VPC · 4 tables")]
   D["Laptop fallback:<br/>same server, SQLite,<br/>Tailscale Funnel"]
   A -- "HTTPS Streamable HTTP<br/>/loci-&lt;token&gt;/mcp" --> B
-  B --> C
+  V -- "HTTPS<br/>/loci-&lt;token&gt;/" --> B
+  B -- "VPC connector" --> C
   A -. "fallback connector" .-> D
 ```
 
@@ -277,30 +279,29 @@ To expose the local server over public HTTPS via Tailscale Funnel:
 | `LOCI_PATH_TOKEN` | generated into `.loci-token` | The capability-URL path segment: `/loci-<token>/…` |
 | `LOCI_DB` | `./loci.db` | SQLite file, when the backend is SQLite |
 | `LOCI_DATABASE_URL` | — | Full Postgres DSN. Its presence selects the Postgres backend. |
-| `LOCI_DB_HOST` + `LOCI_DB_SECRET` + `LOCI_DB_NAME` | — | The AWS fallback (App Runner) path: RDS endpoint, the RDS-managed `{"username","password"}` secret as JSON, and the database name. Presence of `LOCI_DB_HOST` also selects Postgres. |
+| `LOCI_DB_HOST` + `LOCI_DB_SECRET` + `LOCI_DB_NAME` | — | The hosted AWS path: RDS endpoint, the RDS-managed `{"username","password"}` secret as JSON, and the database name. Presence of `LOCI_DB_HOST` also selects Postgres. |
 
-`GET /health` is unauthenticated and reports `{ok, backend, db}` — that is what Cloud Run (and the AWS fallback) health-checks.
+`GET /health` is unauthenticated and reports `{ok, backend, db}` — that is what App Runner health-checks.
 
 ## Deploy
 
-The primary stack is **Google Cloud Run + Cloud SQL Postgres 16** (us-west1), stood up by
-`scripts/bootstrap_gcp.sh`: project, APIs, Artifact Registry, Secret Manager (path token + database
-URL), Cloud SQL, then the service with the Cloud SQL unix socket mounted and the secrets injected as
-env vars. `LOCI_DATABASE_URL` points at the socket; nothing in the code changes. The script is
-idempotent and prints the connector, viewer and health URLs into `.loci-gcp-url` (gitignored).
-Redeploy the image only: `IMAGE_ONLY=1 EXPECTED_PROJECT=<project> ./scripts/bootstrap_gcp.sh`. Tear-down:
-
-```bash
-gcloud run services delete loci --region us-west1 --project loci-0xl0c1
-gcloud sql instances delete loci --project loci-0xl0c1
-```
-
-The **AWS fallback** is the same image on App Runner + RDS PostgreSQL behind a VPC connector: one
-CloudFormation template driven by `scripts/bootstrap_aws.sh`, with `scripts/bind_domain.sh` attaching
-the custom domain afterwards. It is a second, independent graph with its own path token. Tear-down:
+The live stack is **AWS App Runner + Amazon RDS PostgreSQL 16** in `us-west-2`, behind the
+`loci.lincspace.ai` custom domain. `infra/app-runner.yaml` creates ECR, RDS, the private VPC path,
+Secrets Manager entries and App Runner; `scripts/bootstrap_aws.sh` builds and deploys the image, and
+`scripts/bind_domain.sh` attaches the domain. The viewer and MCP route share the capability token;
+their exact URLs stay in the gitignored `.loci-cloud-url`. The public health check is
+[`https://loci.lincspace.ai/health`](https://loci.lincspace.ai/health). Tear-down:
 
 ```bash
 aws cloudformation delete-stack --stack-name 0xl0c1
+```
+
+An optional **Google Cloud Run + Cloud SQL** deployment uses the same image and application code but
+is a separate graph with its own database and capability token. `scripts/bootstrap_gcp.sh` provisions
+that stack and writes its URLs to the gitignored `.loci-gcp-url`:
+
+```bash
+IMAGE_ONLY=1 EXPECTED_PROJECT=<project> ./scripts/bootstrap_gcp.sh
 ```
 
 ## License

@@ -1,5 +1,9 @@
 # 0xL0C1 — demo runbook
 
+The current architecture is summarized in the README's [Architecture](README.md#architecture)
+section. The public deployment is AWS App Runner + RDS at `loci.lincspace.ai`; exact viewer and MCP
+capability URLs remain in the gitignored `.loci-cloud-url`.
+
 ## The ladder
 
 Four rungs. Each one is already registered or already recorded before the demo starts, so falling to
@@ -12,7 +16,7 @@ the next costs seconds, not debugging.
 | 3 — fallback | Claude Desktop or Claude Code against `http://127.0.0.1:8130` | local MCP config | SQLite file on the laptop |
 | 4 — insurance | Play the video cut recorded at 13:45 | — | — |
 
-**Cloud is primary.** Hosting the demo on a machine at home puts the home ISP and a box you cannot
+**AWS is primary.** Hosting the demo on a machine at home puts the home ISP and a box you cannot
 physically reach into the demo path. The cloud path is also less exposed than Funnel at a venue — no
 NAT traversal, no tailnet ACL, no captive-portal interaction.
 
