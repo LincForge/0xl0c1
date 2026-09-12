@@ -4,6 +4,7 @@ They pin what must hold on Saturday regardless of storage engine: a health route
 the MCP endpoint mounted under a capability path, exactly three tools, the viewer state route, and a
 Postgres DDL that mirrors the SQLite one table-for-table.
 """
+
 from __future__ import annotations
 
 import os
@@ -19,7 +20,10 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 TOKEN = "testtok"
-MCP_HEADERS = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
+MCP_HEADERS = {
+    "Content-Type": "application/json",
+    "Accept": "application/json, text/event-stream",
+}
 
 
 def _free_port() -> int:
@@ -31,12 +35,20 @@ def _free_port() -> int:
 @pytest.fixture(scope="module")
 def server(tmp_path_factory):
     port = _free_port()
-    env = {**os.environ, "LOCI_PORT": str(port), "LOCI_PATH_TOKEN": TOKEN,
-           "LOCI_DB": str(tmp_path_factory.mktemp("db") / "t.db")}
+    env = {
+        **os.environ,
+        "LOCI_PORT": str(port),
+        "LOCI_PATH_TOKEN": TOKEN,
+        "LOCI_DB": str(tmp_path_factory.mktemp("db") / "t.db"),
+    }
     for k in ("LOCI_DATABASE_URL", "LOCI_DB_HOST"):
         env.pop(k, None)
-    proc = subprocess.Popen([sys.executable, str(ROOT / "server.py")], env=env,
-                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    proc = subprocess.Popen(
+        [sys.executable, str(ROOT / "server.py")],
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
     base = f"http://127.0.0.1:{port}"
     try:
         for _ in range(80):
@@ -50,20 +62,36 @@ def server(tmp_path_factory):
             time.sleep(0.25)
         else:
             proc.kill()
-            raise RuntimeError("server never became healthy:\n" + proc.stdout.read().decode())
+            raise RuntimeError(
+                "server never became healthy:\n" + proc.stdout.read().decode()
+            )
         yield base
     finally:
         proc.kill()
 
 
-def _rpc(base: str, path: str, method: str, params: dict, id_: int = 1) -> httpx.Response:
-    return httpx.post(f"{base}{path}", timeout=5, headers=MCP_HEADERS,
-                      json={"jsonrpc": "2.0", "id": id_, "method": method, "params": params})
+def _rpc(
+    base: str, path: str, method: str, params: dict, id_: int = 1
+) -> httpx.Response:
+    return httpx.post(
+        f"{base}{path}",
+        timeout=5,
+        headers=MCP_HEADERS,
+        json={"jsonrpc": "2.0", "id": id_, "method": method, "params": params},
+    )
 
 
 def _initialize(base: str, path: str) -> httpx.Response:
-    return _rpc(base, path, "initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
-                                           "clientInfo": {"name": "t", "version": "1"}})
+    return _rpc(
+        base,
+        path,
+        "initialize",
+        {
+            "protocolVersion": "2025-06-18",
+            "capabilities": {},
+            "clientInfo": {"name": "t", "version": "1"},
+        },
+    )
 
 
 def test_health_route(server):
@@ -113,6 +141,7 @@ def test_backend_selection_defaults_to_sqlite(monkeypatch):
         monkeypatch.delenv(k, raising=False)
     sys.path.insert(0, str(ROOT))
     import db
+
     assert db.backend() == "sqlite"
     monkeypatch.setenv("LOCI_DATABASE_URL", "postgresql://u:p@h:5432/loci")
     assert db.backend() == "postgres"
