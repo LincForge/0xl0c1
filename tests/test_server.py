@@ -19,6 +19,7 @@ import httpx
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 TOKEN = "testtok"
 MCP_HEADERS = {
     "Content-Type": "application/json",
@@ -98,7 +99,7 @@ def test_health_route(server):
     r = httpx.get(f"{server}/health")
     assert r.status_code == 200
     body = r.json()
-    assert body["ok"] is True and body["backend"] == "sqlite" and body["db"] == "ok"
+    assert body == {"ok": True, "backend": "ambiguous_sheets"}
 
 
 def test_mcp_lives_under_the_capability_path(server):
@@ -120,8 +121,8 @@ def test_exactly_three_tools(server):
 
 def test_viewer_state_route_under_token(server):
     r = httpx.get(f"{server}/loci-{TOKEN}/api/state")
-    assert r.status_code == 200
-    assert set(r.json()) == {"places", "objects", "lessons", "claims"}
+    assert r.status_code == 503
+    assert r.json()["error"] == "ambiguous_not_configured"
     assert httpx.get(f"{server}/api/state").status_code == 404
 
 
@@ -136,7 +137,7 @@ def test_postgres_schema_mirrors_sqlite_schema():
     assert "PRAGMA" not in pg
 
 
-def test_backend_selection_defaults_to_sqlite(monkeypatch):
+def test_old_db_backend_selection_defaults_to_sqlite(monkeypatch):
     for k in ("LOCI_DATABASE_URL", "LOCI_DB_HOST"):
         monkeypatch.delenv(k, raising=False)
     sys.path.insert(0, str(ROOT))
@@ -145,3 +146,144 @@ def test_backend_selection_defaults_to_sqlite(monkeypatch):
     assert db.backend() == "sqlite"
     monkeypatch.setenv("LOCI_DATABASE_URL", "postgresql://u:p@h:5432/loci")
     assert db.backend() == "postgres"
+
+
+class FakeResponse:
+    def __init__(self, body, status_code=200):
+        self.body, self.status_code = body, status_code
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise httpx.HTTPStatusError(
+                "bad",
+                request=httpx.Request("GET", "http://t"),
+                response=httpx.Response(self.status_code),
+            )
+
+    def json(self):
+        return self.body
+
+
+class FakeTransport:
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.calls = []
+
+    def request(self, method, url, **kwargs):
+        self.calls.append((method, url, kwargs))
+        return self.responses.pop(0)
+
+
+def test_store_append_and_read_are_hermetic():
+    from events import AmbiguousEventStore, EVENT_COLUMNS, new_event
+
+    transport = FakeTransport(
+        [
+            FakeResponse({"updatedRows": 1}),
+            FakeResponse({"data": [list(EVENT_COLUMNS)]}),
+        ]
+    )
+    store = AmbiguousEventStore(
+        api_key="secret",
+        sheet_id="sheet",
+        base_url="https://fake/api",
+        transport=transport,
+    )
+    event = new_event("object_observed", "object", payload={"description": "valve"})
+    assert store.append(event).ok
+    rows, result = store.read()
+    assert result.ok and rows == []
+    assert transport.calls[0][0:2] == (
+        "POST",
+        "https://fake/api/sheets/sheet/values/append",
+    )
+    assert transport.calls[0][2]["json"]["values"][0][1] == event["event_id"]
+
+
+def test_probe_requires_an_exact_readback():
+    from events import AmbiguousEventStore, EVENT_COLUMNS
+
+    header = list(EVENT_COLUMNS)
+    transport = FakeTransport(
+        [FakeResponse({"updatedRows": 1}), FakeResponse({"data": [header]})]
+    )
+    result = AmbiguousEventStore(
+        api_key="key", sheet_id="sheet", transport=transport
+    ).probe()
+    assert result.error == "ambiguous_probe_row_not_found"
+
+
+def test_store_fails_closed_for_missing_configuration_and_invalid_data():
+    from events import AmbiguousEventStore
+
+    assert (
+        AmbiguousEventStore(api_key="", sheet_id="sheet").append({}).error
+        == "ambiguous_not_configured"
+    )
+    transport = FakeTransport([FakeResponse({"data": [["wrong"]]})])
+    rows, result = AmbiguousEventStore(
+        api_key="key", sheet_id="sheet", transport=transport
+    ).read()
+    assert rows is None and result.error == "ambiguous_invalid_read_response"
+
+
+def test_observe_commit_preview_and_confirmed_resume(monkeypatch):
+    import json
+
+    import server
+    from events import StoreResult
+
+    class MemoryStore:
+        def __init__(self):
+            self.events = []
+            self.append_calls = 0
+
+        def append(self, event):
+            self.append_calls += 1
+            saved = dict(event)
+            saved["payload"] = json.loads(saved["payload_json"])
+            self.events.append(saved)
+            return StoreResult(True)
+
+        def read(self):
+            return self.events, StoreResult(True)
+
+    store = MemoryStore()
+    monkeypatch.setattr(server, "_store", lambda: store)
+    missing = server.observe(
+        "", "valve", "metal_chrome_or_steel", "wall_mounted", "", "stop"
+    )
+    assert missing["status"] == "needs_place" and store.append_calls == 0
+    observed = server.observe(
+        "demo bath",
+        "toilet shutoff",
+        "metal_chrome_or_steel",
+        "wall_mounted",
+        "1/4 turn",
+        "under toilet",
+        "T-1",
+    )
+    object_id = observed["object_id"]
+    assert observed["status"] == "ok" and store.append_calls == 1
+    preview = server.commit(
+        object_id,
+        "replace packing",
+        [{"text": "use 3/8 valve", "confidence": "high"}],
+        False,
+        "stop drip",
+        "bring wrench",
+    )
+    assert preview["status"] == "preview" and store.append_calls == 1
+    saved = server.commit(
+        object_id,
+        "replace packing",
+        [{"text": "use 3/8 valve", "confidence": "high"}],
+        True,
+        "stop drip",
+        "bring wrench",
+    )
+    assert saved["status"] == "ok" and saved["claims_persisted"] == 1
+    resumed = server.ask(object_id=object_id)
+    assert resumed["status"] == "ok" and resumed["match"]["id"] == object_id
+    assert resumed["lessons"][0]["next_question"] == "bring wrench"
+    assert resumed["claims"][0]["status"] == "untrusted"
