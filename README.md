@@ -46,7 +46,7 @@ custom connector to an assistant you already use.
 The connector URL is a **capability URL** — the token lives in the path:
 
 ```
-https://loci.lincspace.ai/loci-<token>/mcp          # placeholder; the live token is shared at the event
+https://loci-<hash>-uw.a.run.app/loci-<token>/mcp    # placeholder; the live token is shared at the event
 ```
 
 Claude connectors cannot attach arbitrary static headers, so the path token is the access control. It
@@ -77,7 +77,8 @@ purpose:
 - the `/health` route, the capability path mount, and `stateless_http=True`
 - `db.py` — SQLite/Postgres connect, schema apply, health ping. Plumbing; no tool logic.
 - the `Dockerfile`
-- the CloudFormation template and bootstrap script, reused from an earlier LINC project (`f3-nation-mcp`)
+- the Cloud Run bootstrap script, and the CloudFormation template + bootstrap script for the AWS fallback,
+  reused from an earlier LINC project (`f3-nation-mcp`)
 - contract tests that pin the *stub* surface (health route, capability path, exactly three tools,
   Postgres DDL mirrors SQLite)
 - this README
@@ -211,8 +212,8 @@ small-embedding similarity on the description.
 ```mermaid
 flowchart LR
   A["Host assistant<br/>(Claude / ChatGPT)<br/>vision model → text"]
-  B["FastMCP on AWS App Runner<br/>us-west-2 · stateless HTTP"]
-  C[("RDS PostgreSQL 16<br/>4 tables")]
+  B["FastMCP on Google Cloud Run<br/>us-west1 · stateless HTTP"]
+  C[("Cloud SQL PostgreSQL 16<br/>4 tables")]
   D["Laptop fallback:<br/>same server, SQLite,<br/>Tailscale Funnel"]
   A -- "HTTPS Streamable HTTP<br/>/loci-&lt;token&gt;/mcp" --> B
   B --> C
@@ -249,28 +250,30 @@ To expose the local server over public HTTPS via Tailscale Funnel:
 | `LOCI_PATH_TOKEN` | generated into `.loci-token` | The capability-URL path segment: `/loci-<token>/…` |
 | `LOCI_DB` | `./loci.db` | SQLite file, when the backend is SQLite |
 | `LOCI_DATABASE_URL` | — | Full Postgres DSN. Its presence selects the Postgres backend. |
-| `LOCI_DB_HOST` + `LOCI_DB_SECRET` + `LOCI_DB_NAME` | — | The App Runner path: RDS endpoint, the RDS-managed `{"username","password"}` secret as JSON, and the database name. Presence of `LOCI_DB_HOST` also selects Postgres. |
+| `LOCI_DB_HOST` + `LOCI_DB_SECRET` + `LOCI_DB_NAME` | — | The AWS fallback (App Runner) path: RDS endpoint, the RDS-managed `{"username","password"}` secret as JSON, and the database name. Presence of `LOCI_DB_HOST` also selects Postgres. |
 
-`GET /health` is unauthenticated and reports `{ok, backend, db}` — that is what App Runner health-checks.
+`GET /health` is unauthenticated and reports `{ok, backend, db}` — that is what Cloud Run (and the AWS fallback) health-checks.
 
 ## Deploy
 
-The cloud stack is one CloudFormation template (ECR + RDS PostgreSQL + App Runner behind a VPC
-connector) driven by `scripts/bootstrap_aws.sh`, with `scripts/bind_domain.sh` attaching the custom
-domain afterwards. Run the bootstrap script; it prints the connector URL and the viewer URL when it
-finishes. Tear-down:
-
-```bash
-aws cloudformation delete-stack --stack-name 0xl0c1
-```
-
-The same image also runs on **Google Cloud Run** with Cloud SQL Postgres 16 via `scripts/bootstrap_gcp.sh`
-(Cloud Run mounts the Cloud SQL unix socket; `LOCI_DATABASE_URL` points at it, nothing in the code
-changes). It is a second, independent graph with its own path token. Tear-down:
+The primary stack is **Google Cloud Run + Cloud SQL Postgres 16** (us-west1), stood up by
+`scripts/bootstrap_gcp.sh`: project, APIs, Artifact Registry, Secret Manager (path token + database
+URL), Cloud SQL, then the service with the Cloud SQL unix socket mounted and the secrets injected as
+env vars. `LOCI_DATABASE_URL` points at the socket; nothing in the code changes. The script is
+idempotent and prints the connector, viewer and health URLs into `.loci-gcp-url` (gitignored).
+Redeploy the image only: `IMAGE_ONLY=1 EXPECTED_PROJECT=<project> ./scripts/bootstrap_gcp.sh`. Tear-down:
 
 ```bash
 gcloud run services delete loci --region us-west1 --project loci-0xl0c1
 gcloud sql instances delete loci --project loci-0xl0c1
+```
+
+The **AWS fallback** is the same image on App Runner + RDS PostgreSQL behind a VPC connector: one
+CloudFormation template driven by `scripts/bootstrap_aws.sh`, with `scripts/bind_domain.sh` attaching
+the custom domain afterwards. It is a second, independent graph with its own path token. Tear-down:
+
+```bash
+aws cloudformation delete-stack --stack-name 0xl0c1
 ```
 
 ## License
