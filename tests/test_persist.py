@@ -259,6 +259,19 @@ def test_commit_tolerates_word_confidence(loci_db, server_mod):
     )
     assert r["status"] == "committed"
     assert r["claims_persisted"] == 2 and r["claims_skipped"] == 0
-    stored = {c["text"]: c["confidence"] for c in loci_db.rows("SELECT text, confidence FROM claim")}
+    stored = {
+        c["text"]: c["confidence"]
+        for c in loci_db.rows("SELECT text, confidence FROM claim")
+    }
     assert stored["shutoff leaking on the left"] == 0.9
     assert stored["nut needs replacement"] is None
+
+
+def test_observe_created_carries_commit_hint(loci_db, server_mod):
+    """Live 2026-09-12: across every take the model treated observe as 'saved' and never called commit."""
+    r = _observe(server_mod)
+    assert r["next_step"] == (
+        "Object recorded. Nothing has been saved about it yet. To record the diagnosis, "
+        f"customer note, part needed, and the open question, call `commit` with "
+        f"object_id={r['object_id']} and save=true."
+    )

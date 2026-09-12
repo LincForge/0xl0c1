@@ -54,8 +54,29 @@ def test_exact_place_filter_only(loci_db, server_mod):
     assert r["status"] == "resumed"
     assert r["object"]["label"] == "the toilet shutoff"
     r2 = server_mod.ask(description=GENERIC, place_label="basement")
-    assert r2["status"] == "no_match"
-    assert r2["matches"] == []
+    # zero exact hits: fall back to every object, so the two twins reach the confirm band
+    assert r2["status"] == "needs_confirm"
+    assert (
+        r2["place_note"]
+        == "no objects recorded under 'basement'; matched across all places"
+    )
+    assert "place_note" not in r
+
+
+def test_place_fallback_only_when_exact_filter_is_empty(loci_db, server_mod):
+    """Live 2026-09-12: two models spelled the same bathroom four ways and five asks hit no_match."""
+    _seed_valves(server_mod)
+    exact = server_mod.ask(description=GENERIC, place_label=PLACE)
+    assert exact["status"] == "needs_confirm" and "place_note" not in exact
+    misspelt = server_mod.ask(description=GENERIC, place_label="Jon's master bathroom")
+    assert misspelt["status"] == "needs_confirm"
+    assert len(misspelt["candidates"]) == 2
+    assert misspelt["delta"] < server_mod.DELTA
+    assert misspelt["place_note"] == (
+        "no objects recorded under 'Jon's master bathroom'; matched across all places"
+    )
+    empty = server_mod.ask(description=GENERIC)
+    assert "place_note" not in empty
 
 
 def test_verbatim_hit_resumes(loci_db, server_mod):

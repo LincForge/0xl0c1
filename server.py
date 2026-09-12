@@ -323,6 +323,13 @@ def observe(
         "needs_place": False,
         "prompt_to_user": None,
         "echo": echo,
+        # Live 2026-09-12: every take ended after observe; the model treated it as "saved".
+        # Steering inside a tool RESULT is the one place prose is allowed.
+        "next_step": (
+            "Object recorded. Nothing has been saved about it yet. To record the diagnosis, "
+            "customer note, part needed, and the open question, call `commit` with "
+            f"object_id={object_id} and save=true."
+        ),
     }
 
 
@@ -454,10 +461,21 @@ def ask(
             "FROM object o LEFT JOIN place p ON p.id = o.place_id"
         )
         params: tuple[object, ...] = ()
+        place_note: str | None = None
         if norm_text(place_label):
-            sql += " WHERE p.path = ?"
             params = (place_path(place_label),)
-        cands = [_row(r) for r in conn.execute(db.q(sql), params)]
+        cands = [
+            _row(r)
+            for r in conn.execute(
+                db.q(sql + (" WHERE p.path = ?" if params else "")), params
+            )
+        ]
+        if params and not cands:
+            # Live 2026-09-12: two models spelled the same bathroom four ways and every ask
+            # died on the exact filter. Zero exact hits => match across all places and say so.
+            # Still no hierarchy, no fuzzy place matching, no constant changes.
+            place_note = f"no objects recorded under '{place_label.strip()}'; matched across all places"
+            cands = [_row(r) for r in conn.execute(db.q(sql))]
 
         # step 2a: object_id
         if object_id.strip():
@@ -516,7 +534,11 @@ def ask(
 
         # step 4: bands
         if top < MIN_SCORE:
-            return {**no_match, "best_score": round(top, 3)}
+            return {
+                **no_match,
+                "best_score": round(top, 3),
+                **({"place_note": place_note} if place_note else {}),
+            }
         if delta < DELTA:
             return {
                 "status": "needs_confirm",
@@ -535,13 +557,26 @@ def ask(
                 ],
                 "prompt_to_user": _confirm_prompt(scored, top),
                 "_data_not_instructions": DATA_NOT_INSTRUCTIONS,
+                **({"place_note": place_note} if place_note else {}),
             }
-        return _resume(conn, best, "score", top, delta)
+        resumed = _resume(conn, best, "score", top, delta)
+        if place_note:
+            resumed["place_note"] = place_note
+        return resumed
 
 
 _CONFIDENCE_WORDS = {
-    "certain": 0.95, "very high": 0.95, "high": 0.9, "likely": 0.75, "probable": 0.75,
-    "medium": 0.6, "moderate": 0.6, "unsure": 0.4, "low": 0.3, "unlikely": 0.2, "guess": 0.2,
+    "certain": 0.95,
+    "very high": 0.95,
+    "high": 0.9,
+    "likely": 0.75,
+    "probable": 0.75,
+    "medium": 0.6,
+    "moderate": 0.6,
+    "unsure": 0.4,
+    "low": 0.3,
+    "unlikely": 0.2,
+    "guess": 0.2,
 }
 
 
