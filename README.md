@@ -264,6 +264,15 @@ finishes. Tear-down:
 aws cloudformation delete-stack --stack-name 0xl0c1
 ```
 
+The same image also runs on **Google Cloud Run** with Cloud SQL Postgres 16 via `scripts/bootstrap_gcp.sh`
+(Cloud Run mounts the Cloud SQL unix socket; `LOCI_DATABASE_URL` points at it, nothing in the code
+changes). It is a second, independent graph with its own path token. Tear-down:
+
+```bash
+gcloud run services delete loci --region us-west1 --project loci-0xl0c1
+gcloud sql instances delete loci --project loci-0xl0c1
+```
+
 ## License
 
 Apache-2.0. See [`LICENSE`](LICENSE). Copyright 2026 LINC Innovations LLC.
