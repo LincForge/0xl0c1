@@ -272,4 +272,4 @@ Apache-2.0. See [`LICENSE`](LICENSE). Copyright 2026 LINC Innovations LLC.
 
 **0xL0C1** — Seattle.
 
-Event partners: OpenAI · Georgian · CopilotKit · OpenRouter · AI Tinkerers · Human Feedback Foundation.
+Event partners: OpenAI · Exa · Auth0 · Ambiguous AI · Trigger.dev · Mozilla · OpenRouter · Google Cloud Run · AI Tinkerers.

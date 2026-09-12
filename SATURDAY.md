@@ -846,7 +846,7 @@ the **14:45 real cut**. Shoot the real cut in one take per segment; assemble, do
 
 | Time | Shot | Say |
 |---|---|---|
-| **0:00** | Face to camera, filter in hand | "There's a gap between owning something and understanding it. I have looked up what size filter my furnace takes three times and remembered it zero times." |
+| **0:00** | Brian at Dispatch command post on laptop; Faust as Ivan the Plumber in field with wrench & valve | Brian: "Two years ago water flooded my basement because nobody remembered which valve isolated the branch line. When an agent touches physical infrastructure, guessing isn't an annoyance—it's water damage at 80 PSI. Ivan's in the field, I'm at dispatch." |
 | **0:15** | **Phone**, Claude, camera on the filter in the return | 4b step 1 — observe. Screen mirrored so the tool call is visible. **Name the place out loud.** |
 | **0:45** | Phone, still Claude | 4b step 2 — commit, including the open question. Cut to the laptop viewer: the rows land. |
 | **1:00** | Walk away. Hard cut. **Laptop, ChatGPT** | "Different device. Different company's model. Same object." → 4c step 1. |
@@ -888,8 +888,8 @@ push an image during a take.**
 >
 > A chatbox has no furnace to walk back to.
 >
-> Built today at @AITinkerers Seattle for Agents Everywhere, with @OpenAI · @Georgian · @CopilotKit ·
-> @OpenRouter · Human Feedback Foundation. Apache-2.0.
+> Built today at @AITinkerers Seattle for Agents Everywhere, with @OpenAI · @Exa · @Auth0 · @AmbiguousAI ·
+> @Triggerdotdev · @Mozilla · @OpenRouter · @GoogleCloud. Apache-2.0.
 >
 > [repo] [2-min video]
 
@@ -912,8 +912,7 @@ push an image during a take.**
 > Three MCP tools, four tables, zero pixels ever reaching the server, running on App Runner + Postgres.
 > Apache-2.0, repo below.
 >
-> Thanks to @AI Tinkerers, @OpenAI, @Georgian, @CopilotKit, @OpenRouter and the Human Feedback
-> Foundation for the day.
+> Thanks to @AI Tinkerers, @OpenAI, @Exa, @Auth0, @AmbiguousAI, @Triggerdotdev, @Mozilla, @OpenRouter, and Google Cloud Run for the day.
 >
 > #AITinkerers #AgentsEverywhere #MCP
 
