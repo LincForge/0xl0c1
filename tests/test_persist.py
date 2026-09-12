@@ -198,3 +198,44 @@ def test_q_rewrites_placeholders_for_postgres(loci_db, monkeypatch):
     assert db.q("SELECT ?") == "SELECT ?"
     monkeypatch.setenv("LOCI_DATABASE_URL", "postgresql://u:p@h:5432/loci")
     assert db.q("SELECT ?, ?") == "SELECT %s, %s"
+
+
+def test_observe_logs_one_line_per_call(loci_db, server_mod, caplog):
+    with caplog.at_level("INFO", logger="loci"):
+        r = _observe(server_mod, user_label="the toilet shutoff")
+    lines = [m for m in caplog.messages if m.startswith("LOCI tool=observe ")]
+    assert len(lines) == 1
+    assert "status=created" in lines[0]
+    assert f"object_id={r['object_id']}" in lines[0]
+    assert "place='basement utility closet'" in lines[0]
+    assert "label='the toilet shutoff'" in lines[0]
+    assert "APOLLO" not in lines[0]  # verbatim text never logged
+
+
+def test_commit_logs_and_warns_on_skips_and_unknown_object(loci_db, server_mod, caplog):
+    oid = _observe(server_mod)["object_id"]
+    with caplog.at_level("INFO", logger="loci"):
+        ok = server_mod.commit(
+            object_id=oid,
+            title="t",
+            claims=[{"text": "secret claim text", "confidence": 0.5}, {"nope": 1}],
+            save=True,
+            next_question="q",
+        )
+        bad = server_mod.commit(
+            object_id="does-not-exist", title="t", claims=[], save=True
+        )
+        dry = server_mod.commit(object_id=oid, title="t", claims=[], save=False)
+    assert ok["status"] == "committed" and bad["status"] == "unknown_object"
+    assert dry["status"] == "dry_run"
+    infos = [m for m in caplog.messages if m.startswith("LOCI tool=commit ")]
+    assert len(infos) == 3
+    assert any("status=committed" in m and "save=True" in m for m in infos)
+    assert any("status=dry_run" in m and "save=False" in m for m in infos)
+    assert all("secret claim text" not in m for m in caplog.messages)
+    warns = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert any("skipped=1" in r.getMessage() for r in warns)
+    assert any(
+        "unknown_object" in r.getMessage() and "does-not-exist" in r.getMessage()
+        for r in warns
+    )

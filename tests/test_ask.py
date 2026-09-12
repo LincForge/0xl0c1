@@ -111,8 +111,32 @@ def test_confirm_band_on_twins(loci_db, server_mod):
     assert r["needs_confirm"] is True
     assert r["delta"] < server_mod.DELTA
     assert len(r["candidates"]) == 2
-    assert PLACE in r["prompt_to_user"]
     assert r["matches"] == []
+    assert r["prompt_to_user"] == (
+        f"I have two records here: 'the sink shutoff' and 'the toilet shutoff' ({PLACE}). Which one?"
+    )
+
+
+def test_confirm_prompt_names_each_place_when_they_differ(loci_db, server_mod):
+    server_mod.observe(**VALVE_A)
+    server_mod.observe(**{**VALVE_B, "place_label": "garage"})
+    r = server_mod.ask(description=GENERIC)
+    assert r["status"] == "needs_confirm"
+    assert r["prompt_to_user"] == (
+        f"I have two records here: 'the sink shutoff' (garage) and 'the toilet shutoff' ({PLACE}). Which one?"
+    )
+
+
+def test_ask_logs_one_line_per_call(loci_db, server_mod, caplog):
+    _seed_valves(server_mod)
+    with caplog.at_level("INFO", logger="loci"):
+        server_mod.ask(description=GENERIC, place_label=PLACE)
+    lines = [m for m in caplog.messages if m.startswith("LOCI tool=ask ")]
+    assert len(lines) == 1
+    assert "status=needs_confirm" in lines[0]
+    assert f"place={PLACE!r}" in lines[0]
+    assert "candidates=2" in lines[0]
+    assert "APOLLO" not in lines[0] and "brass" not in lines[0]
 
 
 def test_lone_candidate_resumes(loci_db, server_mod):

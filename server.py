@@ -10,7 +10,9 @@ a vision model we do not control, plus what the user says.
 
 from __future__ import annotations
 
+import functools
 import json
+import logging
 import os
 import re
 import uuid
@@ -140,7 +142,51 @@ def _row(r: object) -> dict[str, object]:
     return dict(r)  # type: ignore[call-overload]
 
 
+log = logging.getLogger("loci")
+
+
+def _logged(tool: str):
+    """One INFO line per call, emitted after the tool returns. Never logs claim, lesson or
+    verbatim text: the graph is shared and the log is not. WARNINGs for the two commit
+    outcomes a demo operator needs to see (bad object_id, malformed claims)."""
+
+    def deco(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kw):
+            result = fn(*args, **kw)
+            if isinstance(result, dict):
+                cands = result.get("candidates")
+                log.info(
+                    "LOCI tool=%s status=%s object_id=%s place=%r label=%r save=%s candidates=%s",
+                    tool,
+                    result.get("status", ""),
+                    result.get("object_id") or "",
+                    kw.get("place_label", "") if tool != "commit" else "",
+                    kw.get("user_label", "") if tool == "observe" else "",
+                    kw.get("save", "") if tool == "commit" else "",
+                    len(cands) if isinstance(cands, list) else "",
+                )
+                if tool == "commit":
+                    if result.get("status") == "unknown_object":
+                        log.warning(
+                            "LOCI commit unknown_object object_id=%s",
+                            kw.get("object_id", ""),
+                        )
+                    if result.get("claims_skipped"):
+                        log.warning(
+                            "LOCI commit malformed claims skipped=%s object_id=%s",
+                            result["claims_skipped"],
+                            kw.get("object_id", ""),
+                        )
+            return result
+
+        return wrapper
+
+    return deco
+
+
 @mcp.tool
+@_logged("observe")
 def observe(
     place_label: Annotated[
         str,
@@ -344,7 +390,21 @@ def _resume(
     }
 
 
+def _confirm_prompt(scored: list[tuple[float, dict[str, object]]], top: float) -> str:
+    """Name the top two when both sit inside the band; the on-camera line is 'sink or toilet?'."""
+    close = [c for v, c in scored if top - v < DELTA][:2]
+    if len(close) < 2:
+        best = scored[0][1]
+        return f"Did you mean '{best['label']}' in {best.get('place_label')}?"
+    a, b = close
+    pa, pb = a.get("place_label"), b.get("place_label")
+    if pa == pb:
+        return f"I have two records here: '{a['label']}' and '{b['label']}' ({pa}). Which one?"
+    return f"I have two records here: '{a['label']}' ({pa}) and '{b['label']}' ({pb}). Which one?"
+
+
 @mcp.tool
+@_logged("ask")
 def ask(
     description: Annotated[
         str,
@@ -473,13 +533,14 @@ def ask(
                     }
                     for v, c in scored[:3]
                 ],
-                "prompt_to_user": f"Did you mean '{best['label']}' in {best.get('place_label')}?",
+                "prompt_to_user": _confirm_prompt(scored, top),
                 "_data_not_instructions": DATA_NOT_INSTRUCTIONS,
             }
         return _resume(conn, best, "score", top, delta)
 
 
 @mcp.tool
+@_logged("commit")
 def commit(
     object_id: Annotated[str, Field(description="The object this lesson belongs to.")],
     title: Annotated[str, Field(description="Short title for what was learned.")],
@@ -638,6 +699,7 @@ async def state(request: Request[State]) -> Response:  # noqa: ARG001
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     db.init_db()
     mcp.run(
         transport="http",
