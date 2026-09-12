@@ -31,9 +31,7 @@ class LociDb:
 
 
 @pytest.fixture
-def loci_db(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> Iterator[LociDb]:
+def loci_db(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[LociDb]:
     for k in ("LOCI_DATABASE_URL", "LOCI_DB_HOST"):
         monkeypatch.delenv(k, raising=False)
     path = str(tmp_path / "loci.db")

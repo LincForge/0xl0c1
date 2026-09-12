@@ -103,7 +103,10 @@ def _commit(server, oid, **over):
     args = dict(
         object_id=oid,
         title="isolation valve on the branch",
-        claims=[{"text": "branch isolated here", "confidence": 0.9}, {"text": "rest of house stays on"}],
+        claims=[
+            {"text": "branch isolated here", "confidence": 0.9},
+            {"text": "rest of house stays on"},
+        ],
         save=True,
         intent="find the shutoff",
         next_question="does the toilet supply need its own stop?",
@@ -121,7 +124,9 @@ def test_commit_writes_lesson_and_claims(loci_db, server_mod):
     assert r["claims_persisted"] == 2 and r["claims_skipped"] == 0
     assert r["cursor_active"] is True
     assert loci_db.counts()["lesson"] == 1 and loci_db.counts()["claim"] == 2
-    assert {c["status"] for c in loci_db.rows("SELECT status FROM claim")} == {"asserted"}
+    assert {c["status"] for c in loci_db.rows("SELECT status FROM claim")} == {
+        "asserted"
+    }
     assert "_stub" not in r
 
 
@@ -129,7 +134,9 @@ def test_commit_retires_prior_cursor(loci_db, server_mod):
     oid = _observe(server_mod)["object_id"]
     _commit(server_mod, oid, next_question="q1")
     second = _commit(server_mod, oid, next_question="q2")
-    active = loci_db.rows("SELECT id, next_question FROM lesson WHERE is_cursor_active = 1")
+    active = loci_db.rows(
+        "SELECT id, next_question FROM lesson WHERE is_cursor_active = 1"
+    )
     assert len(active) == 1
     assert active[0]["id"] == second["lesson_id"]
     assert active[0]["next_question"] == "q2"
@@ -140,7 +147,10 @@ def test_commit_without_next_question_preserves_cursor(loci_db, server_mod):
     first = _commit(server_mod, oid, next_question="q1")
     second = _commit(server_mod, oid, next_question="")
     assert second["cursor_active"] is False
-    rows = {r["id"]: r["is_cursor_active"] for r in loci_db.rows("SELECT id, is_cursor_active FROM lesson")}
+    rows = {
+        r["id"]: r["is_cursor_active"]
+        for r in loci_db.rows("SELECT id, is_cursor_active FROM lesson")
+    }
     assert rows[first["lesson_id"]] == 1
     assert rows[second["lesson_id"]] == 0
     assert sum(rows.values()) == 1
@@ -153,7 +163,11 @@ def test_commit_dry_run_writes_nothing(loci_db, server_mod):
     assert loci_db.counts() == before
     assert r["status"] == "dry_run"
     assert r["skipped"] is True
-    assert r["lesson_id"] is None and r["claims_persisted"] == 0 and r["cursor_active"] is False
+    assert (
+        r["lesson_id"] is None
+        and r["claims_persisted"] == 0
+        and r["cursor_active"] is False
+    )
     w = r["would_have_written"]
     assert set(w) >= {"object_id", "title", "intent", "claims", "next_question"}
     assert w["object_id"] == oid
@@ -162,7 +176,11 @@ def test_commit_dry_run_writes_nothing(loci_db, server_mod):
 def test_commit_unknown_object_is_a_clean_failure(loci_db, server_mod):
     r = _commit(server_mod, "nope-not-an-id")
     assert r["status"] == "unknown_object"
-    assert r["lesson_id"] is None and r["claims_persisted"] == 0 and r["cursor_active"] is False
+    assert (
+        r["lesson_id"] is None
+        and r["claims_persisted"] == 0
+        and r["cursor_active"] is False
+    )
     assert r["prompt_to_user"]
     assert loci_db.counts() == {"place": 0, "object": 0, "lesson": 0, "claim": 0}
 
