@@ -120,6 +120,29 @@ class AmbiguousEventStore:
             return None, StoreResult(False, "ambiguous_invalid_read_response")
         return rows, StoreResult(True)
 
+    def probe(self) -> StoreResult:
+        """Credentialed acceptance probe: append a unique throwaway row and read it back.
+
+        This is intentionally not called on startup; it is an operator action once the
+        restricted sheet credentials are present.
+        """
+        event = new_event(
+            "object_observed",
+            str(uuid4()),
+            place_label="__loci_probe__",
+            canonical_class="probe",
+            payload={"description": "credentialed append/read acceptance probe"},
+        )
+        written = self.append(event)
+        if not written.ok:
+            return written
+        rows, read = self.read()
+        if not read.ok or rows is None:
+            return read
+        if any(row["event_id"] == event["event_id"] for row in rows):
+            return StoreResult(True)
+        return StoreResult(False, "ambiguous_probe_row_not_found")
+
 
 def new_event(event_type: str, object_id: str, **fields: Any) -> dict[str, Any]:
     """Make a schema-versioned immutable event with a client-generated id."""

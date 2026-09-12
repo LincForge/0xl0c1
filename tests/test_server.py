@@ -200,6 +200,19 @@ def test_store_append_and_read_are_hermetic():
     assert transport.calls[0][2]["json"]["values"][0][1] == event["event_id"]
 
 
+def test_probe_requires_an_exact_readback():
+    from events import AmbiguousEventStore, EVENT_COLUMNS
+
+    header = list(EVENT_COLUMNS)
+    transport = FakeTransport(
+        [FakeResponse({"updatedRows": 1}), FakeResponse({"data": [header]})]
+    )
+    result = AmbiguousEventStore(
+        api_key="key", sheet_id="sheet", transport=transport
+    ).probe()
+    assert result.error == "ambiguous_probe_row_not_found"
+
+
 def test_store_fails_closed_for_missing_configuration_and_invalid_data():
     from events import AmbiguousEventStore
 
