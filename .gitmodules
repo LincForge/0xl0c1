@@ -1,0 +1,6 @@
+[submodule "job-site-memory"]
+	path = job-site-memory
+	url = https://github.com/briancripe/job-site-memory.git
+[submodule "job-site-memory-mobile"]
+	path = job-site-memory-mobile
+	url = https://github.com/briancripe/job-site-memory-mobile.git
