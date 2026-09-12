@@ -297,7 +297,20 @@ The live stack is **AWS App Runner + Amazon RDS PostgreSQL 16** in `us-west-2`, 
 Secrets Manager entries and App Runner; `scripts/bootstrap_aws.sh` builds and deploys the image, and
 `scripts/bind_domain.sh` attaches the domain. The viewer and MCP route share the capability token;
 their exact URLs stay in the gitignored `.loci-cloud-url`. The public health check is
-[`https://loci.lincspace.ai/health`](https://loci.lincspace.ai/health). Tear-down:
+[`https://loci.lincspace.ai/health`](https://loci.lincspace.ai/health).
+
+Use the bootstrap script only for a new stack. To redeploy the existing service from a clean `main`,
+put the Ambiguous values in the ignored `.env`, then run:
+
+```bash
+EXPECTED_ACCOUNT=<aws-account-id> just deploy-aws
+```
+
+The repeat-deploy recipe preserves the existing stack, uploads the Ambiguous values to Secrets
+Manager, builds a uniquely tagged `linux/amd64` image, updates App Runner with public egress, and waits
+for an Ambiguous-configured health response. It does not recreate RDS or rebind the custom domain.
+
+Tear-down:
 
 ```bash
 aws cloudformation delete-stack --stack-name 0xl0c1

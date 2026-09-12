@@ -21,6 +21,8 @@ Conditions:
   ShouldCreateService: !Equals [!Ref CreateService, 'true']
   HasAmbiguousApiKey: !Not [!Equals [!Ref AmbiguousApiKeySecretArn, '']]
   HasAmbiguousSheetId: !Not [!Equals [!Ref AmbiguousSheetIdSecretArn, '']]
+  UseAmbiguous:
+    !And [!Condition HasAmbiguousApiKey, !Condition HasAmbiguousSheetId]
 Resources:
   Repo:
     Type: AWS::ECR::Repository
@@ -75,7 +77,13 @@ Resources:
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
-              - {Effect: Allow, Action: [secretsmanager:GetSecretValue], Resource: [!Ref PathToken, !GetAtt Db.MasterUserSecret.SecretArn]}
+              - Effect: Allow
+                Action: [secretsmanager:GetSecretValue]
+                Resource:
+                  - !Ref PathToken
+                  - !GetAtt Db.MasterUserSecret.SecretArn
+                  - !If [HasAmbiguousApiKey, !Ref AmbiguousApiKeySecretArn, !Ref 'AWS::NoValue']
+                  - !If [HasAmbiguousSheetId, !Ref AmbiguousSheetIdSecretArn, !Ref 'AWS::NoValue']
   AccessRole:
     Type: AWS::IAM::Role
     Properties:
@@ -94,7 +102,14 @@ Resources:
       InstanceConfiguration: {Cpu: '0.25 vCPU', Memory: '0.5 GB', InstanceRoleArn: !GetAtt InstanceRole.Arn}
       HealthCheckConfiguration: {Protocol: HTTP, Path: /health, Interval: 10, Timeout: 5, HealthyThreshold: 1, UnhealthyThreshold: 5}
       NetworkConfiguration:
-        EgressConfiguration: {EgressType: VPC, VpcConnectorArn: !GetAtt VpcConnector.VpcConnectorArn}
+        # Ambiguous is a public HTTPS API. App Runner VPC connectors have no
+        # public egress without a NAT gateway, so the Ambiguous deployment uses
+        # App Runner's default public egress. The original RDS deployment keeps
+        # the VPC connector when the optional Ambiguous secrets are absent.
+        EgressConfiguration: !If
+          - UseAmbiguous
+          - {EgressType: DEFAULT}
+          - {EgressType: VPC, VpcConnectorArn: !GetAtt VpcConnector.VpcConnectorArn}
       SourceConfiguration:
         AutoDeploymentsEnabled: true
         AuthenticationConfiguration: {AccessRoleArn: !GetAtt AccessRole.Arn}

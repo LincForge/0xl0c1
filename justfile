@@ -70,3 +70,8 @@ smoke: build
     docker logs "$container" >&2; \
     echo "container health check did not return ok: true" >&2; \
     exit 1
+
+# Redeploy the existing AWS App Runner stack with Ambiguous Sheets persistence.
+# Requires AWS CLI credentials, Docker, and AMBIGUOUS_* values in ignored .env.
+deploy-aws:
+    ./scripts/redeploy_aws.sh
