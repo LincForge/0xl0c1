@@ -46,4 +46,27 @@ check:
     just typecheck
     just test
 
-# Container build and smoke checks are added by the container-validation bead.
+# Build the reproducible local application image.
+build:
+    docker build --tag loci:local --file Dockerfile .
+
+# Start the local image, verify its health endpoint, and always remove it.
+smoke: build
+    @container="loci-smoke-$$"; \
+    cleanup() { docker rm --force "$container" >/dev/null 2>&1 || true; }; \
+    trap cleanup EXIT INT TERM; \
+    docker run --detach --name "$container" \
+        --env LOCI_PATH_TOKEN=smoke-test-token \
+        --env LOCI_DB=/tmp/loci-smoke.db \
+        --publish 127.0.0.1::8130 \
+        loci:local >/dev/null; \
+    port="$(docker port "$container" 8130/tcp | sed -n 's/.*:\([0-9][0-9]*\)$/\1/p')"; \
+    test -n "$port"; \
+    for _ in $(seq 1 40); do \
+        response="$(curl --fail --silent --show-error "http://127.0.0.1:$port/health" 2>/dev/null || true)"; \
+        if grep --quiet '"ok"[[:space:]]*:[[:space:]]*true' <<<"$response"; then exit 0; fi; \
+        sleep 0.25; \
+    done; \
+    docker logs "$container" >&2; \
+    echo "container health check did not return ok: true" >&2; \
+    exit 1
