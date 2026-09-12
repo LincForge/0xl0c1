@@ -867,6 +867,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "fastmcp" },
+    { name = "httpx" },
     { name = "psycopg", extra = ["binary"] },
     { name = "rapidfuzz" },
 ]
@@ -883,6 +884,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastmcp", specifier = ">=2.0" },
+    { name = "httpx", specifier = ">=0.27" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
     { name = "rapidfuzz", specifier = ">=3.14.6" },
 ]
