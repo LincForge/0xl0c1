@@ -99,7 +99,12 @@ def test_health_route(server):
     r = httpx.get(f"{server}/health")
     assert r.status_code == 200
     body = r.json()
-    assert body == {"ok": True, "backend": "ambiguous_sheets"}
+    assert body == {
+        "ok": True,
+        "backend": "ambiguous_sheets",
+        "configured": False,
+        "available": False,
+    }
 
 
 def test_mcp_lives_under_the_capability_path(server):
@@ -198,6 +203,53 @@ def test_store_append_and_read_are_hermetic():
         "https://fake/api/sheets/sheet/values/append",
     )
     assert transport.calls[0][2]["json"]["values"][0][1] == event["event_id"]
+    assert transport.calls[0][2]["json"]["range"] == "Events!A1:M1"
+
+
+def test_store_reads_documented_sheet_envelope():
+    from events import AmbiguousEventStore, EVENT_COLUMNS
+
+    columns = [
+        {"id": chr(65 + i), "name": name} for i, name in enumerate(EVENT_COLUMNS)
+    ]
+    values = [
+        "1",
+        "event",
+        "object_observed",
+        "now",
+        "object",
+        "bath",
+        "valve",
+        "metal_chrome_or_steel",
+        "wall_mounted",
+        "",
+        "",
+        "",
+        '{"version":1,"description":"under sink"}',
+    ]
+    row = {chr(65 + i): value for i, value in enumerate(values)}
+    transport = FakeTransport(
+        [
+            FakeResponse(
+                {
+                    "data": {
+                        "sheets": [
+                            {
+                                "name": "Events",
+                                "columns": columns,
+                                "rows": [row],
+                            }
+                        ]
+                    }
+                }
+            )
+        ]
+    )
+    rows, result = AmbiguousEventStore(
+        api_key="key", sheet_id="sheet", transport=transport
+    ).read()
+    assert result.ok
+    assert rows and rows[0]["event_id"] == "event"
 
 
 def test_probe_requires_an_exact_readback():

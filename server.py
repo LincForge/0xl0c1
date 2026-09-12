@@ -322,10 +322,24 @@ def commit(
 
 @mcp.custom_route("/health", methods=["GET"])
 async def health(request: Request[State]) -> Response:  # noqa: ARG001
-    """Unauthenticated liveness for App Runner. Reports which backend is wired and whether it answers."""
+    """Unauthenticated liveness for App Runner, without exposing provider credentials.
+
+    ``available`` is deliberately null when configured: liveness does not append a
+    probe row or turn a transient Ambiguous outage into an App Runner restart. The
+    acceptance probe and the state route are the authoritative provider checks.
+    """
     from starlette.responses import JSONResponse
 
-    return JSONResponse({"ok": True, "backend": "ambiguous_sheets"})
+    store = _store()
+    configured = store.configuration_status()
+    return JSONResponse(
+        {
+            "ok": True,
+            "backend": "ambiguous_sheets",
+            "configured": configured,
+            "available": None if configured else False,
+        }
+    )
 
 
 @mcp.custom_route(f"{BASE}/", methods=["GET"])
