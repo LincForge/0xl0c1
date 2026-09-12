@@ -5,11 +5,26 @@
 ## Before you open a PR
 
 ```bash
-uv sync
-uv run pytest -q
+just check
+just test
+just build
 ```
 
-CI runs the same two commands on push and on pull requests. Green is the bar.
+`just check` is the canonical contribution gate. From a clean checkout it uses uv to provision the
+locked development dependencies, then checks the lock, lint, formatting, strict types, and tests.
+`just test` is the canonical focused test command, and `just build` is the canonical container build
+command (and therefore requires Docker).
+
+Tests use xdist with a default and hard maximum of six workers. On a constrained shared machine,
+select a smaller worker count with a positive integer:
+
+```bash
+PYTEST_XDIST_AUTO_NUM_WORKERS=2 just test
+```
+
+Invalid values are rejected and values above six are capped at six. When debugging ordering or
+concurrency, use `just test-serial` or the equivalent `just test -- -n0` path. The Docker-backed
+`just build` and `just smoke` checks are intentionally outside the fast `just check` gate.
 
 ## The constraints that are not up for negotiation
 

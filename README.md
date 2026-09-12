@@ -229,10 +229,37 @@ index, because there are no visuals.
 
 ## Run locally
 
+Install [uv](https://docs.astral.sh/uv/) and [just](https://just.systems/), then use the
+repository recipes as the supported development interface. A clean checkout needs no separate
+bootstrap step: the first command below creates the locked development environment before running
+the full fast gate.
+
 ```bash
-uv sync
+just check
+just test
+just build
+```
+
+`just check` is the contribution gate: it verifies the lock, lint and formatting, runs strict mypy,
+and runs the tests. `just test` runs pytest through xdist with at most six workers by default. Choose a
+smaller positive worker count when sharing a constrained machine:
+
+```bash
+PYTEST_XDIST_AUTO_NUM_WORKERS=2 just test
+```
+
+The override must be a positive integer and remains capped at six. To diagnose ordering or
+concurrency failures, run `just test-serial`; `just test -- -n0` is the equivalent pytest-style
+escape hatch.
+
+`just build` requires Docker and creates the reproducible `loci:local` image. `just smoke` builds the
+image, starts it on a dynamically allocated local port, checks `/health`, and cleans it up. Container
+build and smoke checks are intentionally outside the fast `just check` gate.
+
+To start the server directly for interactive local development after the environment is provisioned:
+
+```bash
 LOCI_PATH_TOKEN=dev uv run python server.py    # http://127.0.0.1:8130/loci-dev/mcp
-uv run pytest                                   # contract tests
 ```
 
 Without `LOCI_PATH_TOKEN`, the server generates a random token into the gitignored `.loci-token`.
