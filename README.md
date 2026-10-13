@@ -25,34 +25,24 @@ you say it lives in. `commit` writes what you worked out, plus the question you 
 on a different phone and a different assistant, you point at the same object and `ask` hands the thread
 back — the lessons, the claims, and the open question.
 
-**Zero-pixel.** The server never receives an image. No pixels held, no embeddings computed, no OCR run.
+**Zero-pixel.** The server never receives an image. No pixels held, no camera frames stored, no server-side OCR run.
 Identity arrives as text authored by the host assistant's vision model — which we do not control and do
 not call — plus what the user says. The `20x25x1 MERV 11` printed on the filter reaches us because the
 host model transcribes it into a required string parameter, not because we look at the filter.
 
-**Three tools only:** `observe`, `ask`, `commit`. **Four tables only:** `place`, `object`, `lesson`,
-`claim`. That is the entire product surface.
+**Four MCP tools:** `observe`, `ask`, `commit`, `list_spaces`. **Six multi-tenant tables with PostgreSQL 16 Row-Level Security (RLS):** `space`, `membership`, `place`, `object`, `lesson`, `claim`.
 
 ## Connect it
 
-0xL0C1 is a remote MCP server over Streamable HTTP. There is no app to install — you attach it as a
-custom connector to an assistant you already use.
+0xL0C1 (LINC Loci) is a multi-tenant remote MCP server over Streamable HTTP running on **Google Cloud Run + Cloud SQL PostgreSQL 16 (RLS) + Vertex AI (`text-embedding-004`)**. There is no app to install — you attach it as a connector to an assistant you already use, either via **OAuth 2.1 + PKCE** or via a per-space **capability URL**:
 
-| Host | How | Notes |
+| Host | How | Auth Modes |
 |---|---|---|
-| **Claude** | Settings → Connectors → Add custom connector → paste the URL | Works on Free (one custom connector), Pro and Max; web, desktop and mobile |
-| **ChatGPT** | Developer mode → add an MCP server → authentication: **"no authentication"** | Requires Plus/Pro or above; free accounts cannot attach connectors |
+| **Claude** (Web / Desktop / iOS / Android) | Settings → Connectors → Add custom connector → paste `https://loci.lincspace.ai/mcp` (OAuth 2.1) or `https://loci.lincspace.ai/loci-<space_token>/mcp` | OAuth 2.1 (`S256` PKCE + Dynamic Client Registration) or per-space capability path |
+| **ChatGPT** (Web / Mobile Developer Mode) | Developer mode → add an MCP server → `https://loci.lincspace.ai/mcp` or `/loci-<space_token>/mcp` | OAuth 2.1 or capability path |
+| **Gemini Live / CLI / ADK** | Streamable HTTP MCP client pointed at `/mcp` (`Authorization: Bearer <token>`) or `/loci-<space_token>/mcp` | OAuth 2.1 Bearer token or capability path |
 
-The connector URL is a **capability URL** — the token lives in the path:
-
-```
-https://loci-<hash>-uw.a.run.app/loci-<token>/mcp    # placeholder; the live token is shared at the event
-```
-
-Claude connectors cannot attach arbitrary static headers, so the path token is the access control. It
-follows that, for the demo, **this is one shared, open memory space for everyone in the cohort**.
-Anything you observe or commit is visible to anyone else holding the URL. Do not store secrets, and
-don't point it at anything you would mind a room full of people reading.
+Each **Space** (`space_id`) is isolated at the database layer via PostgreSQL 16 `FORCE ROW LEVEL SECURITY` (`current_setting('loci.current_space_id', true)`) and composite `(space_id, id)` foreign keys. Operators can print a self-serve SVG sheet of 30-symbol homoglyph-free visual Base32 short-code stickers (with a mod-30 check character) at `/loci-<space_token>/labels.svg`.
 
 ## Built during the hackathon vs. brought
 

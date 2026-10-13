@@ -1,46 +1,87 @@
--- 0xL0C1 schema. Four tables. Brought to the hackathon as an empty stub.
+-- 0xL0C1 / LINC Loci multi-tenant schema (SQLite flavour). Six tables with composite FKs.
 PRAGMA journal_mode = WAL;
+PRAGMA foreign_keys = ON;
+
+CREATE TABLE IF NOT EXISTS space (
+    id                    TEXT PRIMARY KEY,
+    slug                  TEXT NOT NULL UNIQUE,
+    name                  TEXT NOT NULL,
+    tier                  TEXT NOT NULL DEFAULT 'free',
+    capability_token      TEXT NOT NULL UNIQUE,
+    capability_token_hash TEXT NOT NULL UNIQUE,
+    tag_prefix            TEXT NOT NULL DEFAULT '',
+    created_at            TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS membership (
+    id              TEXT PRIMARY KEY,
+    space_id        TEXT NOT NULL REFERENCES space(id) ON DELETE CASCADE,
+    subject         TEXT NOT NULL,
+    role            TEXT NOT NULL DEFAULT 'writer',
+    token_hash      TEXT UNIQUE,
+    created_at      TEXT NOT NULL,
+    UNIQUE(space_id, subject)
+);
 
 CREATE TABLE IF NOT EXISTS place (
-    id          TEXT PRIMARY KEY,
-    label       TEXT NOT NULL,
-    path        TEXT NOT NULL,               -- dotted: house.upstairs.bath
-    created_at  TEXT NOT NULL
+    id              TEXT PRIMARY KEY,
+    space_id        TEXT NOT NULL REFERENCES space(id) ON DELETE CASCADE,
+    label           TEXT NOT NULL,
+    path            TEXT NOT NULL,               -- dotted: house.upstairs.bath
+    created_at      TEXT NOT NULL,
+    UNIQUE(space_id, id),
+    UNIQUE(space_id, path)
 );
 
 CREATE TABLE IF NOT EXISTS object (
-    id             TEXT PRIMARY KEY,
-    label          TEXT NOT NULL,
-    aliases_json   TEXT NOT NULL DEFAULT '[]',
-    attrs_json     TEXT NOT NULL DEFAULT '{}',  -- material, mounting, vendor, model_no, owned_since
-    place_id       TEXT REFERENCES place(id),
-    tag_code       TEXT UNIQUE,                  -- printed Crockford Base32 short code, e.g. K94B
-    verbatim_text  TEXT NOT NULL DEFAULT '',     -- what the vision model read off the object
-    description    TEXT NOT NULL DEFAULT '',
-    first_seen_at  TEXT NOT NULL,
-    last_seen_at   TEXT NOT NULL
+    id              TEXT PRIMARY KEY,
+    space_id        TEXT NOT NULL REFERENCES space(id) ON DELETE CASCADE,
+    label           TEXT NOT NULL,
+    canonical_class TEXT NOT NULL DEFAULT '',
+    material        TEXT NOT NULL DEFAULT 'composite_or_other',
+    mounting        TEXT NOT NULL DEFAULT 'handheld_portable',
+    aliases_json    TEXT NOT NULL DEFAULT '[]',
+    attrs_json      TEXT NOT NULL DEFAULT '{}',
+    place_id        TEXT,
+    tag_code        TEXT,                        -- printed visual Base32 short code, e.g. K9-4C
+    verbatim_text   TEXT NOT NULL DEFAULT '',
+    description     TEXT NOT NULL DEFAULT '',
+    embedding_model TEXT NOT NULL DEFAULT 'deterministic-64d',
+    embedding_json  TEXT NOT NULL DEFAULT '[]',
+    first_seen_at   TEXT NOT NULL,
+    last_seen_at    TEXT NOT NULL,
+    UNIQUE(space_id, id),
+    UNIQUE(space_id, tag_code),
+    FOREIGN KEY (space_id, place_id) REFERENCES place(space_id, id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS lesson (
     id               TEXT PRIMARY KEY,
-    object_id        TEXT NOT NULL REFERENCES object(id) ON DELETE CASCADE,
+    space_id         TEXT NOT NULL REFERENCES space(id) ON DELETE CASCADE,
+    object_id        TEXT NOT NULL,
+    author_subject   TEXT NOT NULL DEFAULT 'anonymous',
     title            TEXT NOT NULL,
     intent           TEXT,
-    next_question    TEXT,                        -- the carried open question
-    is_cursor_active INTEGER NOT NULL DEFAULT 1,  -- exactly one active cursor per object
-    created_at       TEXT NOT NULL
+    next_question    TEXT,
+    is_cursor_active INTEGER NOT NULL DEFAULT 1,
+    created_at       TEXT NOT NULL,
+    UNIQUE(space_id, id),
+    FOREIGN KEY (space_id, object_id) REFERENCES object(space_id, id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS claim (
-    id          TEXT PRIMARY KEY,
-    lesson_id   TEXT NOT NULL REFERENCES lesson(id) ON DELETE CASCADE,
-    text        TEXT NOT NULL,
-    confidence  REAL,
-    status      TEXT NOT NULL DEFAULT 'asserted'
+    id              TEXT PRIMARY KEY,
+    space_id        TEXT NOT NULL REFERENCES space(id) ON DELETE CASCADE,
+    lesson_id       TEXT NOT NULL,
+    text            TEXT NOT NULL,
+    confidence      REAL,
+    status          TEXT NOT NULL DEFAULT 'asserted',
+    FOREIGN KEY (space_id, lesson_id) REFERENCES lesson(space_id, id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_object_place    ON object(place_id);
-CREATE INDEX IF NOT EXISTS idx_object_tag      ON object(tag_code) WHERE tag_code IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_lesson_object   ON lesson(object_id);
-CREATE INDEX IF NOT EXISTS idx_lesson_cursor   ON lesson(object_id) WHERE is_cursor_active = 1;
-CREATE INDEX IF NOT EXISTS idx_claim_lesson    ON claim(lesson_id);
+CREATE INDEX IF NOT EXISTS idx_place_space       ON place(space_id, path);
+CREATE INDEX IF NOT EXISTS idx_object_space      ON object(space_id, place_id);
+CREATE INDEX IF NOT EXISTS idx_object_tag        ON object(space_id, tag_code) WHERE tag_code IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_lesson_object     ON lesson(space_id, object_id);
+CREATE INDEX IF NOT EXISTS idx_lesson_cursor     ON lesson(space_id, object_id) WHERE is_cursor_active = 1;
+CREATE INDEX IF NOT EXISTS idx_claim_lesson      ON claim(space_id, lesson_id);

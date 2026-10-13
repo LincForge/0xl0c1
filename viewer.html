@@ -1,85 +1,84 @@
-<!doctype html><meta charset="utf-8"><title>0xL0C1 — graph</title>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LINC Loci (0xL0C1) — Physical-World Memory Platform</title>
 <style>
-:root{--bg:#0b0f14;--panel:#131a23;--line:#22303f;--ink:#e6edf3;--dim:#8b9bb0;
-      --accent:#59d0a0;--warn:#e0b341;--new:#59d0a0}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);
-     font:15px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}
-header{padding:14px 20px;border-bottom:1px solid var(--line);display:flex;
-       align-items:baseline;gap:14px}
-h1{margin:0;font-size:17px;letter-spacing:.14em}
-.sub{color:var(--dim);font-size:12px}
-.live{margin-left:auto;font-size:12px;color:var(--accent)}
-.live.stale{color:var(--warn)}
-main{padding:18px 20px;display:grid;gap:16px;max-width:1100px}
-section{background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
-h2{margin:0;padding:9px 14px;font-size:12px;letter-spacing:.16em;color:var(--dim);
-   border-bottom:1px solid var(--line);text-transform:uppercase}
-.count{color:var(--accent)}
-table{width:100%;border-collapse:collapse;font-size:13px}
-td,th{padding:8px 14px;text-align:left;border-bottom:1px solid var(--line);
-      vertical-align:top;word-break:break-word}
-th{color:var(--dim);font-weight:400;font-size:11px;letter-spacing:.08em;text-transform:uppercase}
-tr:last-child td{border-bottom:0}
-.empty{padding:16px 14px;color:var(--dim);font-style:italic;font-size:13px}
-.tag{display:inline-block;padding:1px 7px;border-radius:4px;background:#1d2b38;
-     color:var(--accent);font-size:11px;letter-spacing:.06em}
-.q{color:var(--warn)}
-.cursor{color:var(--accent)}
-@keyframes flash{from{background:#1b3b30}to{background:transparent}}
-.fresh{animation:flash 2.2s ease-out}
+  :root { --bg:#0b0d10; --card:#13171d; --line:#222933; --fg:#e6edf3; --muted:#7d8590; --accent:#58a6ff; --ok:#3fb950; --warn:#d29922; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:24px; background:var(--bg); color:var(--fg); font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; max-width:1280px; margin-inline:auto; }
+  header { display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:16px; border-bottom:1px solid var(--line); padding-bottom:14px; margin-bottom:20px; }
+  h1 { font-size:18px; margin:0; letter-spacing:.04em; }
+  h1 span { color:var(--muted); font-weight:400; font-size:13px; margin-left:10px; }
+  .actions { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .btn { display:inline-block; padding:6px 12px; border-radius:6px; border:1px solid var(--line); background:var(--card); color:var(--fg); text-decoration:none; font-size:12px; cursor:pointer; }
+  .btn-primary { border-color:var(--accent); color:var(--accent); }
+  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--ok); margin-right:6px; }
+  .banner { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:14px 16px; margin-bottom:18px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; }
+  .banner code { color:var(--accent); background:#0b0d10; padding:4px 8px; border-radius:4px; border:1px solid var(--line); }
+  .grid { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; }
+  @media (max-width:960px) { .grid { grid-template-columns:repeat(2,1fr); } }
+  @media (max-width:560px) { .grid { grid-template-columns:1fr; } }
+  section { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:14px; min-height:380px; }
+  h2 { font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin:0 0 12px; display:flex; justify-content:space-between; }
+  .row { border-top:1px solid var(--line); padding:10px 0; font-size:13px; }
+  .row:first-of-type { border-top:0; }
+  .k { color:var(--accent); font-weight:600; }
+  .sub { color:var(--muted); font-size:12px; margin-top:2px; }
+  .tag { display:inline-block; padding:1px 6px; border:1px solid var(--accent); color:var(--accent); border-radius:4px; font-size:11px; margin-left:6px; }
+  .cursor { color:var(--warn); font-size:12px; margin-top:4px; }
+  .empty { color:var(--muted); font-style:italic; padding-top:8px; }
 </style>
+</head>
+<body>
 <header>
-  <h1>0xL0C1</h1>
-  <span class="sub">memory lives on the object, not the app</span>
-  <span class="live" id="live">connecting…</span>
+  <h1>0xL0C1 · LINC LOCI <span id="space-title">memory lives on the object, not the app · zero-pixel multi-tenant MCP</span></h1>
+  <div class="actions">
+    <a class="btn btn-primary" id="labels-link" href="labels.svg" target="_blank">Print Visual Base32 Tags (SVG)</a>
+    <a class="btn" href="/pricing">Pricing &amp; Field-Service Tiers</a>
+    <a class="btn" href="/">All Spaces &amp; OAuth 2.1 Setup</a>
+    <div><span class="dot"></span><span id="ts">connecting…</span></div>
+  </div>
 </header>
-<main>
-  <section><h2>Places <span class="count" id="c-place">0</span></h2><div id="places"></div></section>
-  <section><h2>Objects <span class="count" id="c-object">0</span></h2><div id="objects"></div></section>
-  <section><h2>Lessons <span class="count" id="c-lesson">0</span></h2><div id="lessons"></div></section>
-  <section><h2>Claims <span class="count" id="c-claim">0</span></h2><div id="claims"></div></section>
-</main>
+<div class="banner">
+  <div>
+    <strong>MCP Connector URL:</strong> <code id="mcp-url">loading…</code>
+    <span class="sub" style="margin-left:8px;">Attach in Claude (Settings → Connectors) or ChatGPT (Developer Mode → MCP)</span>
+  </div>
+  <div id="space-meta" class="sub"></div>
+</div>
+<div class="grid">
+  <section><h2>Places <span id="n-places">0</span></h2><div id="places"></div></section>
+  <section><h2>Objects <span id="n-objects">0</span></h2><div id="objects"></div></section>
+  <section><h2>Lessons <span id="n-lessons">0</span></h2><div id="lessons"></div></section>
+  <section><h2>Claims <span id="n-claims">0</span></h2><div id="claims"></div></section>
+</div>
 <script>
-const COLS = {
-  places:  [["label","label"],["path","path"]],
-  objects: [["label","label"],["place","place"],["tag_code","tag"],["verbatim_text","text read off it"]],
-  lessons: [["title","title"],["object","object"],["next_question","open question"],["is_cursor_active","active"]],
-  claims:  [["text","claim"],["confidence","conf"],["status","status"]],
-};
-const seen = {places:new Set(),objects:new Set(),lessons:new Set(),claims:new Set()};
-let first = true;
-
-function render(key, rows){
-  document.getElementById("c-"+key.slice(0,-1)).textContent = rows.length;
-  const host = document.getElementById(key);
-  if(!rows.length){ host.innerHTML = '<div class="empty">nothing yet — call observe</div>'; return; }
-  const cols = COLS[key];
-  host.innerHTML = "<table><tr>" + cols.map(c=>`<th>${c[1]}</th>`).join("") + "</tr>" +
-    rows.map(r=>{
-      const isNew = !first && !seen[key].has(r.id);
-      seen[key].add(r.id);
-      return `<tr class="${isNew?'fresh':''}">` + cols.map(([f])=>{
-        let v = r[f]; if(v===null||v===undefined||v==="") v = "—";
-        if(f==="tag_code" && v!=="—") return `<td><span class="tag">${v}</span></td>`;
-        if(f==="next_question" && v!=="—") return `<td class="q">${v}</td>`;
-        if(f==="is_cursor_active") return `<td class="cursor">${v?"●":"—"}</td>`;
-        return `<td>${v}</td>`;
-      }).join("") + "</tr>";
-    }).join("") + "</table>";
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const basePath = location.pathname.replace(/\/$/, '');
+document.getElementById('mcp-url').textContent = `${location.origin}${basePath}/mcp`;
+document.getElementById('labels-link').href = `${basePath}/labels.svg`;
+function render(el, rows, fn) {
+  document.getElementById('n-' + el).textContent = rows.length;
+  document.getElementById(el).innerHTML = rows.length ? rows.map(fn).join('') : '<div class="empty">none yet</div>';
 }
-
-async function tick(){
-  const el = document.getElementById("live");
-  try{
-    const r = await fetch("api/state",{cache:"no-store"});
-    const d = await r.json();
-    for(const k of ["places","objects","lessons","claims"]) render(k, d[k]||[]);
-    first = false;
-    el.textContent = "live · " + new Date().toLocaleTimeString();
-    el.className = "live";
-  }catch(e){ el.textContent = "disconnected"; el.className = "live stale"; }
+async function tick() {
+  try {
+    const r = await fetch(`${basePath}/api/state`);
+    const s = await r.json();
+    if (s.space) {
+      document.getElementById('space-title').textContent = `${s.space.name} (${s.space.tier} tier · ${s.space.slug})`;
+      document.getElementById('space-meta').textContent = `Space ID: ${s.space.id} · Handoffs: ${s.handoff_count ?? 0}`;
+    }
+    render('places', s.places || [], p => `<div class="row"><div class="k">${esc(p.label)}</div><div class="sub">${esc(p.path)}</div></div>`);
+    render('objects', s.objects || [], o => `<div class="row"><div class="k">${esc(o.label)}${o.tag_code ? `<span class="tag">${esc(o.tag_code)}</span>` : ''}</div><div class="sub">${esc(o.place || '')}${o.verbatim_text ? ' · “' + esc(o.verbatim_text) + '”' : ''}</div></div>`);
+    render('lessons', s.lessons || [], l => `<div class="row"><div class="k">${esc(l.title)}</div><div class="sub">${esc(l.object)}${l.author_subject ? ' · by ' + esc(l.author_subject) : ''}</div>${l.is_cursor_active && l.next_question ? `<div class="cursor">↳ next: ${esc(l.next_question)}</div>` : ''}</div>`);
+    render('claims', s.claims || [], c => `<div class="row"><div>${esc(c.text)}</div><div class="sub">${esc(c.status)} · conf ${c.confidence ?? '—'}</div></div>`);
+    document.getElementById('ts').textContent = 'live · ' + new Date().toLocaleTimeString();
+  } catch (e) { document.getElementById('ts').textContent = 'reconnecting…'; }
 }
-tick(); setInterval(tick, 1500);
+tick(); setInterval(tick, 2000);
 </script>
+</body>
+</html>

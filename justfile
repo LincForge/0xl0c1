@@ -14,15 +14,15 @@ sync:
 
 # Check source formatting without modifying files.
 format:
-    uv run --frozen ruff format --check server.py events.py db.py tests
+    uv run --frozen ruff format --check server.py events.py db.py auth.py embeddings.py labels.py tests
 
 # Run the configured static lint rules.
 lint:
-    uv run --frozen ruff check server.py events.py db.py tests
+    uv run --frozen ruff check server.py events.py db.py auth.py embeddings.py labels.py tests
 
 # Type-check the application boundary in strict mode.
 typecheck:
-    uv run --frozen mypy server.py events.py db.py
+    uv run --frozen mypy server.py events.py db.py auth.py embeddings.py labels.py
 
 # Run tests with a validated, bounded xdist worker limit. Extra pytest arguments are forwarded.
 test *args:
@@ -75,3 +75,21 @@ smoke: build
 # Requires AWS CLI credentials, Docker, and AMBIGUOUS_* values in ignored .env.
 deploy-aws:
     ./scripts/redeploy_aws.sh
+
+# Build, push, and deploy LINC Loci to Google Cloud Run (loci-0xl0c1) with Cloud SQL + Vertex AI.
+deploy-gcp:
+    gcloud auth print-access-token | docker login -u oauth2accesstoken --password-stdin https://us-west1-docker.pkg.dev
+    docker build --platform linux/amd64 --tag us-west1-docker.pkg.dev/loci-0xl0c1/loci/0xl0c1:latest --file Dockerfile .
+    docker push us-west1-docker.pkg.dev/loci-0xl0c1/loci/0xl0c1:latest
+    gcloud run deploy loci \
+        --project=loci-0xl0c1 \
+        --region=us-west1 \
+        --image=us-west1-docker.pkg.dev/loci-0xl0c1/loci/0xl0c1:latest \
+        --add-cloudsql-instances=loci-0xl0c1:us-west1:loci \
+        --set-secrets=LOCI_DATABASE_URL=loci-db-url:latest,LOCI_PATH_TOKEN=loci-path-token:latest \
+        --set-env-vars=LOCI_EMBEDDING_PROVIDER=vertex,LOCI_GCP_PROJECT=loci-0xl0c1,LOCI_GCP_REGION=us-west1,LOCI_SEED_SHOWCASE=1 \
+        --min-instances=1 \
+        --max-instances=3 \
+        --port=8130 \
+        --allow-unauthenticated \
+        --quiet

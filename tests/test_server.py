@@ -101,9 +101,8 @@ def test_health_route(server):
     body = r.json()
     assert body == {
         "ok": True,
-        "backend": "ambiguous_sheets",
-        "configured": False,
-        "available": False,
+        "backend": "sqlite",
+        "db": "ok",
     }
 
 
@@ -126,8 +125,9 @@ def test_exactly_three_tools(server):
 
 def test_viewer_state_route_under_token(server):
     r = httpx.get(f"{server}/loci-{TOKEN}/api/state")
-    assert r.status_code == 503
-    assert r.json()["error"] == "ambiguous_not_configured"
+    assert r.status_code == 200
+    state = r.json()
+    assert {"places", "objects", "lessons", "claims"}.issubset(state.keys())
     assert httpx.get(f"{server}/api/state").status_code == 404
 
 
@@ -138,7 +138,11 @@ def _tables(sql: str) -> set[str]:
 def test_postgres_schema_mirrors_sqlite_schema():
     sqlite = (ROOT / "schema.sql").read_text()
     pg = (ROOT / "schema.postgres.sql").read_text()
-    assert _tables(pg) == _tables(sqlite) == {"place", "object", "lesson", "claim"}
+    assert (
+        _tables(pg)
+        == _tables(sqlite)
+        == {"space", "membership", "place", "object", "lesson", "claim"}
+    )
     assert "PRAGMA" not in pg
 
 

@@ -33,5 +33,5 @@ target-version = "py311"
 select = ["E4", "E7", "E9", "F"]
 
 [tool.mypy]
-files = ["server.py", "events.py", "db.py"]
+files = ["server.py", "events.py", "db.py", "auth.py", "embeddings.py", "labels.py"]
 strict = true
