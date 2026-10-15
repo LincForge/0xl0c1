@@ -1061,18 +1061,23 @@ class SpaceAuthMiddleware:
                         _CURRENT_SPACE_ID.reset(tok_sp)
                         _CURRENT_SUBJECT.reset(tok_sub)
                     return
-                resp = JSONResponse(
-                    {
-                        "error": "invalid_token",
-                        "error_description": "Invalid or expired Bearer token.",
-                    },
-                    status_code=401,
-                    headers={
-                        "WWW-Authenticate": 'Bearer resource_metadata="/.well-known/oauth-protected-resource"'
-                    },
-                )
-                await resp(scope, receive, send)
-                return
+            proto = headers.get("x-forwarded-proto") or scope.get("scheme") or "https"
+            host = (
+                headers.get("x-forwarded-host")
+                or headers.get("host")
+                or "loci.lincinnovations.com"
+            )
+            res_meta = f"{proto}://{host}/.well-known/oauth-protected-resource"
+            resp = JSONResponse(
+                {
+                    "error": "unauthorized",
+                    "error_description": "OAuth 2.1 Bearer token required for /mcp.",
+                },
+                status_code=401,
+                headers={"WWW-Authenticate": f'Bearer resource_metadata="{res_meta}"'},
+            )
+            await resp(scope, receive, send)
+            return
 
         # Case 2: /loci-<space_token>/mcp capability URL
         m = re.fullmatch(r"/loci-([a-zA-Z0-9_-]+)/mcp", path)
@@ -1189,11 +1194,14 @@ async def health(request: Request[State]) -> Response:  # noqa: ARG001
 
 
 @mcp.custom_route("/.well-known/oauth-authorization-server", methods=["GET"])
+@mcp.custom_route("/.well-known/openid-configuration", methods=["GET"])
 async def oauth_metadata_route(request: Request[State]) -> Response:
     return JSONResponse(oauth_server_metadata(_base_url(request)))
 
 
 @mcp.custom_route("/.well-known/oauth-protected-resource", methods=["GET"])
+@mcp.custom_route("/.well-known/oauth-protected-resource/mcp", methods=["GET"])
+@mcp.custom_route("/mcp/.well-known/oauth-protected-resource", methods=["GET"])
 async def oauth_resource_route(request: Request[State]) -> Response:
     return JSONResponse(oauth_protected_resource_metadata(_base_url(request)))
 

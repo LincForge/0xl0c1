@@ -113,7 +113,7 @@ def test_mcp_lives_under_the_capability_path(server):
 
 
 def test_bare_mcp_path_is_not_served(server):
-    assert _initialize(server, "/mcp").status_code == 404
+    assert _initialize(server, "/mcp").status_code in (401, 404)
 
 
 def test_exactly_three_tools(server):
