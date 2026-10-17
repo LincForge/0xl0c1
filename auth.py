@@ -10,6 +10,7 @@ import os
 import secrets
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 
@@ -17,13 +18,62 @@ def sha256_hex(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+_DEFAULT_SECRET_FILE = Path(__file__).parent / ".loci-auth-secret"
+_MIN_SECRET_LEN = 32
+
+
+def _env(name: str) -> str | None:
+    """An env var's value, with blank or whitespace-only treated as unset."""
+    value = os.environ.get(name, "").strip()
+    return value or None
+
+
+def _secret_file() -> Path:
+    return Path(_env("LOCI_AUTH_SECRET_FILE") or _DEFAULT_SECRET_FILE)
+
+
+def _signing_secret() -> str:
+    """The HMAC secret behind OAuth codes and access tokens.
+
+    Order: LOCI_AUTH_SECRET, then LOCI_PATH_TOKEN, then (local runs only) a random
+    per-install secret persisted 0600 next to the code. There is no built-in
+    constant: a known default would let anyone mint a token for any space.
+    """
+    if secret := _env("LOCI_AUTH_SECRET") or _env("LOCI_PATH_TOKEN"):
+        return secret
+    if _env("K_SERVICE"):
+        raise RuntimeError(
+            "LOCI_AUTH_SECRET (or LOCI_PATH_TOKEN) must be set on Cloud Run: a "
+            "per-instance random secret would make tokens unverifiable across "
+            "instances and restarts."
+        )
+    path = _secret_file()
+    if not path.exists():
+        # Write a private temp file, then hard-link it into place: the link is atomic
+        # and fails if another process won the race, so no reader sees an empty file.
+        tmp = path.with_name(f"{path.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w") as fh:
+            fh.write(secrets.token_urlsafe(48))
+        try:
+            os.link(tmp, path)
+        except FileExistsError:
+            pass
+        finally:
+            tmp.unlink()
+    secret = path.read_text().strip()
+    if len(secret) < _MIN_SECRET_LEN:
+        raise RuntimeError(f"{path} holds a signing secret shorter than {_MIN_SECRET_LEN} chars")
+    return secret
+
+
+def assert_signing_configured() -> None:
+    """Fail fast at startup instead of on the first OAuth request."""
+    _signing_secret()
+
+
 def _signing_key() -> bytes:
-    secret = (
-        os.environ.get("LOCI_AUTH_SECRET")
-        or os.environ.get("LOCI_PATH_TOKEN")
-        or "loci-dev-signing-secret"
-    )
-    return hashlib.sha256(f"loci-oauth21:{secret}".encode("utf-8")).digest()
+    return hashlib.sha256(f"loci-oauth21:{_signing_secret()}".encode("utf-8")).digest()
 
 
 def _b64u_encode(data: bytes) -> str:

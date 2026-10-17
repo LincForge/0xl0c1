@@ -226,48 +226,6 @@ def test_tenant_isolation_across_spaces(
     assert res_b["match"]["id"] == obs_b["object_id"]
 
 
-@pytest.fixture(scope="module")
-def live_server(tmp_path_factory: pytest.TempPathFactory):
-    import os
-    import socket
-    import subprocess
-    import time
-
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        port = s.getsockname()[1]
-
-    env = {
-        **os.environ,
-        "LOCI_PORT": str(port),
-        "LOCI_PATH_TOKEN": "root-token",
-        "LOCI_DB": str(tmp_path_factory.mktemp("mt_db") / "mt.db"),
-    }
-    for k in ("LOCI_DATABASE_URL", "LOCI_DB_HOST"):
-        env.pop(k, None)
-    proc = subprocess.Popen(
-        [sys.executable, str(ROOT / "server.py")],
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-    )
-    base = f"http://127.0.0.1:{port}"
-    try:
-        for _ in range(80):
-            try:
-                if httpx.get(f"{base}/health", timeout=1).status_code == 200:
-                    break
-            except httpx.HTTPError:
-                pass
-            time.sleep(0.2)
-        else:
-            proc.kill()
-            raise RuntimeError("server failed to start")
-        yield base
-    finally:
-        proc.kill()
-
-
 def test_oauth21_and_web_console_http_endpoints(live_server: str) -> None:
     server = live_server
     # 1. OAuth 2.1 Discovery Metadata
@@ -319,7 +277,7 @@ def test_oauth21_and_web_console_http_endpoints(live_server: str) -> None:
             "state": "xyz123",
             "code_challenge": challenge,
             "code_challenge_method": "S256",
-            "space_id": sp1["space_id"],
+            "space_token": sp1["capability_token"],
             "subject": "tech1@lincinnovations.com",
         },
         follow_redirects=False,
