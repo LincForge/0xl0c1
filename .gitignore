@@ -11,3 +11,4 @@ __pycache__/
 .loci-token
 .loci-cloud-url
 .loci-gcp-url
+.loci-auth-secret

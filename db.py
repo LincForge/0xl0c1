@@ -43,6 +43,22 @@ def default_path_token() -> str:
     return token_file.read_text().strip()
 
 
+def stored_token_value(tok_hash: str) -> str:
+    """What the legacy capability_token column holds: the digest, never the secret.
+
+    The column stays NOT NULL UNIQUE for schema compatibility; lookups use
+    capability_token_hash only, so this value cannot authenticate.
+    """
+    return f"sha256:{tok_hash}"
+
+
+# Idempotent: rewrites any row still holding a plaintext token (pre-hardening data).
+REDACT_PLAINTEXT_TOKENS_SQL = (
+    "UPDATE space SET capability_token = 'sha256:' || capability_token_hash "
+    "WHERE capability_token NOT LIKE 'sha256:%'"
+)
+
+
 def backend() -> str:
     return (
         "postgres"
@@ -130,7 +146,7 @@ def _migrate_legacy_postgres(conn: psycopg.Connection[dict[str, Any]]) -> None:
             DEFAULT_SPACE_ID,
             "default",
             "Default Loci Space",
-            tok,
+            stored_token_value(sha256_hex(tok)),
             sha256_hex(tok),
             now_iso(),
         ),
@@ -233,7 +249,7 @@ def ensure_default_space(default_token: str | None = None) -> dict[str, Any]:
                     "default",
                     "Default Loci Space",
                     "pro",
-                    tok,
+                    stored_token_value(tok_hash),
                     tok_hash,
                     "LC",
                     now,
@@ -241,12 +257,12 @@ def ensure_default_space(default_token: str | None = None) -> dict[str, Any]:
             )
         else:
             row = _row_dict(existing)
-            if row.get("capability_token") != tok:
+            if row.get("capability_token_hash") != tok_hash:
                 conn.execute(
                     q(
                         "UPDATE space SET capability_token = ?, capability_token_hash = ? WHERE id = ?"
                     ),
-                    (tok, tok_hash, DEFAULT_SPACE_ID),
+                    (stored_token_value(tok_hash), tok_hash, DEFAULT_SPACE_ID),
                 )
         out = conn.execute(
             q("SELECT * FROM space WHERE id = ?"), (DEFAULT_SPACE_ID,)
@@ -265,12 +281,14 @@ def init_db(default_token: str | None = None) -> None:
                 assert isinstance(conn, psycopg.Connection)
                 _migrate_legacy_postgres(conn)
                 conn.execute((HERE / "schema.postgres.sql").read_text())
+                conn.execute(REDACT_PLAINTEXT_TOKENS_SQL)
             _PG_DDL_INITIALIZED.add(pg_key)
     else:
         db_path = os.environ.get("LOCI_DB", str(HERE / "loci.db"))
         with sqlite3.connect(db_path) as conn:
             _migrate_legacy_sqlite(conn)
             conn.executescript((HERE / "schema.sql").read_text())
+            conn.execute(REDACT_PLAINTEXT_TOKENS_SQL)
     ensure_default_space(default_token)
 
 
@@ -309,7 +327,7 @@ def create_space(
                 clean_slug,
                 name.strip() or clean_slug,
                 tier,
-                tok,
+                stored_token_value(tok_hash),
                 tok_hash,
                 tag_prefix.upper()[:2],
                 now,
@@ -342,10 +360,8 @@ def get_space_by_token(capability_token: str) -> dict[str, Any] | None:
     tok_hash = sha256_hex(tok)
     with tx() as conn:
         row = conn.execute(
-            q(
-                "SELECT * FROM space WHERE capability_token_hash = ? OR capability_token = ?"
-            ),
-            (tok_hash, tok),
+            q("SELECT * FROM space WHERE capability_token_hash = ?"),
+            (tok_hash,),
         ).fetchone()
         return _row_dict(row) if row is not None else None
 

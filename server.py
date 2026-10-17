@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import contextvars
 import functools
+import hmac
 import html
 import json
 import logging
@@ -17,7 +18,7 @@ import secrets
 from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, Any, Literal, TypeVar, cast
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 from uuid import uuid4
 
 from fastmcp import FastMCP
@@ -37,6 +38,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 import db
 from auth import (
+    assert_signing_configured,
     exchange_authorization_code,
     mint_access_token,
     mint_authorization_code,
@@ -193,10 +195,32 @@ def _store() -> Any:
     return None
 
 
+def _authorized_space_id(explicit_space_id: str = "") -> str | None:
+    """The space a tool call may touch, or None when the caller is not allowed there.
+
+    A request is bound to one space by its credential (capability path or Bearer
+    token). Only the operator's root space may name another space explicitly;
+    every tenant is pinned to its own, whatever `space_id` the caller passes.
+    """
+    bound = _CURRENT_SPACE_ID.get() or db.DEFAULT_SPACE_ID
+    explicit = explicit_space_id.strip()
+    if not explicit or explicit == bound:
+        return bound
+    if bound == db.DEFAULT_SPACE_ID:
+        return explicit
+    return None
+
+
 def _active_space_id(explicit_space_id: str = "") -> str:
-    if explicit_space_id.strip():
-        return explicit_space_id.strip()
-    return _CURRENT_SPACE_ID.get() or db.DEFAULT_SPACE_ID
+    """Non-raising variant for logging: falls back to the bound space."""
+    return _authorized_space_id(explicit_space_id) or (
+        _CURRENT_SPACE_ID.get() or db.DEFAULT_SPACE_ID
+    )
+
+
+def _same_token(presented: str, expected: str) -> bool:
+    """Constant-time compare that also accepts non-ASCII input (compare_digest on str does not)."""
+    return hmac.compare_digest(presented.encode("utf-8"), expected.encode("utf-8"))
 
 
 def _error(code: str, **extra: object) -> dict[str, object]:
@@ -354,7 +378,9 @@ def observe(
         )
 
     db.init_db()
-    sid = _active_space_id(space_id)
+    sid = _authorized_space_id(space_id)
+    if sid is None:
+        return _error("space_forbidden", space_id=space_id.strip())
     path = place_path(place_label)
     tag = _norm_tag(visible_tag_code) or None
     label = user_label.strip() or canonical_class.strip() or "object"
@@ -631,7 +657,9 @@ def ask(
         )
 
     db.init_db()
-    sid = _active_space_id(space_id)
+    sid = _authorized_space_id(space_id)
+    if sid is None:
+        return _error("space_forbidden", space_id=space_id.strip())
     with db.tx(space_id=sid) as conn:
         raw_rows = conn.execute(
             db.q(
@@ -940,7 +968,9 @@ def commit(
         }
 
     db.init_db()
-    sid = _active_space_id(space_id)
+    sid = _authorized_space_id(space_id)
+    if sid is None:
+        return _error("space_forbidden", space_id=space_id.strip())
     author = _CURRENT_SUBJECT.get() or "anonymous"
     good = [
         c for c in claims if isinstance(c, dict) and str(c.get("text") or "").strip()
@@ -1016,10 +1046,13 @@ def commit(
 def list_spaces() -> dict[str, object]:
     """List physical memory spaces available on this Loci node."""
     db.init_db()
+    bound = _CURRENT_SPACE_ID.get() or db.DEFAULT_SPACE_ID
     spaces = db.list_all_spaces()
+    if bound != db.DEFAULT_SPACE_ID:
+        spaces = [s for s in spaces if str(s["id"]) == bound]
     return {
         "status": "ok",
-        "active_space_id": _active_space_id(),
+        "active_space_id": bound,
         "spaces": spaces,
     }
 
@@ -1084,7 +1117,7 @@ class SpaceAuthMiddleware:
         if m:
             cand_token = m.group(1)
             db.init_db()
-            if cand_token == TOKEN:
+            if _same_token(cand_token, TOKEN):
                 space_id = db.DEFAULT_SPACE_ID
             else:
                 sp = db.get_space_by_token(cand_token)
@@ -1119,9 +1152,27 @@ def _base_url(request: Request[State]) -> str:
 
 def _resolve_space_from_token_param(token_param: str) -> dict[str, Any] | None:
     db.init_db()
-    if token_param == TOKEN:
+    token_param = token_param.strip()
+    if not token_param:
+        return None
+    if _same_token(token_param, TOKEN):
         return db.ensure_default_space(TOKEN)
     return db.get_space_by_token(token_param)
+
+
+_LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+
+def _safe_redirect_uri(uri: str) -> bool:
+    """https with a host, or http to loopback (native/CLI clients). Nothing else."""
+    try:
+        parts = urlsplit(uri)
+    except ValueError:
+        return False
+    host = parts.hostname or ""
+    if parts.scheme == "https":
+        return bool(host)
+    return parts.scheme == "http" and host in _LOOPBACK_HOSTS
 
 
 def _state_for_space(space_id: str) -> dict[str, Any]:
@@ -1230,12 +1281,20 @@ async def oauth_register_route(request: Request[State]) -> Response:
 async def oauth_authorize_route(request: Request[State]) -> Response:
     db.init_db()
     if request.method == "GET":
-        params = dict(request.query_params)
-        spaces = db.list_all_spaces()
-        options_html = "".join(
-            f'<option value="{html.escape(str(s["id"]))}">{html.escape(str(s["name"]))} ({html.escape(str(s["tier"]))})</option>'
-            for s in spaces
-        )
+        params = {
+            k: v
+            for k, v in request.query_params.items()
+            if k not in ("space_token", "space_id")
+        }
+        redirect_uri = params.get("redirect_uri", "")
+        if not _safe_redirect_uri(redirect_uri):
+            return HTMLResponse(
+                "This page is opened by your assistant's connector flow. Add "
+                f"{html.escape(_base_url(request))}/mcp as a custom MCP connector "
+                "to start it.",
+                status_code=400,
+            )
+        destination = html.escape(urlsplit(redirect_uri).hostname or "")
         hidden_inputs = "".join(
             f'<input type="hidden" name="{html.escape(k)}" value="{html.escape(v)}">'
             for k, v in params.items()
@@ -1246,9 +1305,11 @@ async def oauth_authorize_route(request: Request[State]) -> Response:
         select,input,button{{width:100%;padding:10px;margin-top:8px;margin-bottom:16px;background:#0b0d10;color:#e6edf3;border:1px solid #222933;border-radius:6px;}}
         button{{background:#58a6ff;color:#0b0d10;font-weight:700;cursor:pointer;border:0;}}</style></head>
         <body><div class="card"><h2>Connect Assistant to LINC Loci</h2>
-        <p>Select the physical Space this MCP connector can access:</p>
+        <p>Paste the access token of the Space this connector may use. It is the part after
+        <code>/loci-</code> in your Space console URL.</p>
+        <p>Access will be granted to: <strong>{destination}</strong></p>
         <form method="post" action="/oauth/authorize">{hidden_inputs}
-        <label>Space</label><select name="space_id">{options_html}</select>
+        <label>Space access token</label><input type="password" name="space_token" autocomplete="off" required>
         <label>Operator / Technician Email</label><input type="email" name="subject" value="operator@lincinnovations.com" required>
         <button type="submit">Authorize MCP Access</button></form></div></body></html>"""
         return HTMLResponse(page)
@@ -1259,15 +1320,22 @@ async def oauth_authorize_route(request: Request[State]) -> Response:
     state = str(form.get("state") or "")
     code_challenge = str(form.get("code_challenge") or "")
     code_challenge_method = str(form.get("code_challenge_method") or "S256")
-    space_id = str(form.get("space_id") or db.DEFAULT_SPACE_ID)
     subject = str(form.get("subject") or "oauth-user")
+
+    if not _safe_redirect_uri(redirect_uri):
+        return HTMLResponse("Invalid redirect_uri.", status_code=400)
+    space = _resolve_space_from_token_param(str(form.get("space_token") or ""))
+    if space is None:
+        return HTMLResponse(
+            "Unknown or missing Space access token.", status_code=401
+        )
 
     code = mint_authorization_code(
         client_id=client_id,
         redirect_uri=redirect_uri,
         code_challenge=code_challenge,
         code_challenge_method=code_challenge_method,
-        space_id=space_id,
+        space_id=str(space["id"]),
         subject=subject,
     )
     q_params = {"code": code}
@@ -1290,7 +1358,28 @@ async def oauth_token_route(request: Request[State]) -> Response:
 
     grant_type = str(data.get("grant_type") or "authorization_code")
     if grant_type == "client_credentials":
-        space_id = str(data.get("space_id") or db.DEFAULT_SPACE_ID)
+        # The client secret IS the Space access token: no token, no grant.
+        space = _resolve_space_from_token_param(
+            str(data.get("client_secret") or data.get("space_token") or "")
+        )
+        if space is None:
+            return JSONResponse(
+                {
+                    "error": "invalid_client",
+                    "error_description": "client_secret must be a valid Space access token.",
+                },
+                status_code=401,
+            )
+        space_id = str(space["id"])
+        requested = str(data.get("space_id") or "").strip()
+        if requested and requested != space_id:
+            return JSONResponse(
+                {
+                    "error": "invalid_request",
+                    "error_description": "space_id does not match the presented credential.",
+                },
+                status_code=400,
+            )
         subject = str(data.get("client_id") or "service-client")
         tok = mint_access_token(space_id=space_id, subject=subject, role="writer")
         return JSONResponse(
@@ -1829,7 +1918,7 @@ def seed_showcase_spaces() -> list[dict[str, Any]]:
 @mcp.custom_route("/loci-{space_token}/api/seed", methods=["POST"])
 async def space_seed_route(request: Request[State]) -> Response:
     token_param = str(request.path_params.get("space_token") or "")
-    if not secrets.compare_digest(token_param, TOKEN):
+    if not _same_token(token_param, TOKEN):
         return JSONResponse({"error": "forbidden"}, status_code=403)
     seeded = seed_showcase_spaces()
     return JSONResponse({"status": "ok", "spaces": seeded})
@@ -1837,6 +1926,7 @@ async def space_seed_route(request: Request[State]) -> Response:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    assert_signing_configured()
     db.init_db()
     if os.environ.get("LOCI_SEED_SHOWCASE", "0") == "1":
         seed_showcase_spaces()

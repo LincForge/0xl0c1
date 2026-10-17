@@ -42,6 +42,8 @@ host model transcribes it into a required string parameter, not because we look 
 | **ChatGPT** (Web / Mobile Developer Mode) | Developer mode → add an MCP server → `https://loci.lincspace.ai/mcp` or `/loci-<space_token>/mcp` | OAuth 2.1 or capability path |
 | **Gemini Live / CLI / ADK** | Streamable HTTP MCP client pointed at `/mcp` (`Authorization: Bearer <token>`) or `/loci-<space_token>/mcp` | OAuth 2.1 Bearer token or capability path |
 
+**Authorization is proof of possession.** The OAuth consent page asks for the Space's access token (the `<space_token>` in its capability URL) and issues a code only for that Space; it never lists tenants. The `client_credentials` grant takes the same token as `client_secret`. Redirect targets must be `https`, or `http` to loopback. Spaces store only a SHA-256 digest of their token.
+
 Each **Space** (`space_id`) is isolated at the database layer via PostgreSQL 16 `FORCE ROW LEVEL SECURITY` (`current_setting('loci.current_space_id', true)`) and composite `(space_id, id)` foreign keys. Operators can print a self-serve SVG sheet of 30-symbol homoglyph-free visual Base32 short-code stickers (with a mod-30 check character) at `/loci-<space_token>/labels.svg`.
 
 ## Built during the hackathon vs. brought
@@ -267,6 +269,7 @@ To expose the local server over public HTTPS via Tailscale Funnel:
 | `LOCI_HOST` | `127.0.0.1` | Bind address (`0.0.0.0` inside the container) |
 | `LOCI_PORT` | `8130` | Bind port |
 | `LOCI_PATH_TOKEN` | generated into `.loci-token` | The capability-URL path segment: `/loci-<token>/…` |
+| `LOCI_AUTH_SECRET` | `LOCI_PATH_TOKEN`, else a random secret in the gitignored `.loci-auth-secret` | HMAC key for OAuth codes and access tokens. Set it in production; on Cloud Run the server refuses to start without it or `LOCI_PATH_TOKEN`. |
 | `LOCI_DB` | `./loci.db` | SQLite file, when the backend is SQLite |
 | `LOCI_DATABASE_URL` | — | Full Postgres DSN. Its presence selects the Postgres backend. |
 | `LOCI_DB_HOST` + `LOCI_DB_SECRET` + `LOCI_DB_NAME` | — | The hosted AWS path: RDS endpoint, the RDS-managed `{"username","password"}` secret as JSON, and the database name. Presence of `LOCI_DB_HOST` also selects Postgres. |

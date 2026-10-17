@@ -7,3 +7,9 @@
 __pycache__
 *.pyc
 *.db
+.env
+.env.*
+.loci-token
+.loci-auth-secret
+.loci-cloud-url
+.loci-gcp-url
