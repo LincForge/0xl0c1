@@ -1422,6 +1422,22 @@ def _bearer_space_id(request: Request[State]) -> str | None:
     return str(sp["id"]) if sp is not None else None
 
 
+async def _json_object(request: Request[State]) -> dict[str, Any] | None:
+    """The request body as a JSON object, or None if it is missing, malformed or not an object."""
+    try:
+        body = await request.json()
+    except ValueError:
+        return None
+    return body if isinstance(body, dict) else None
+
+
+def _bad_body() -> JSONResponse:
+    return JSONResponse(
+        {"error": "invalid_request", "error_description": "Body must be a JSON object."},
+        status_code=400,
+    )
+
+
 def _unauthorized(description: str) -> JSONResponse:
     return JSONResponse(
         {"error": "unauthorized", "error_description": description},
@@ -1447,10 +1463,13 @@ async def spaces_api_route(request: Request[State]) -> Response:
             {"error": "forbidden", "error_description": "Only the operator creates spaces."},
             status_code=403,
         )
-    body = await request.json()
+    body = await _json_object(request)
+    if body is None:
+        return _bad_body()
+    slug = body.get("slug")
     created = db.create_space(
         name=str(body.get("name") or "New Space"),
-        slug=body.get("slug"),
+        slug=str(slug) if slug not in (None, "") else None,
         tier=str(body.get("tier") or "free"),
         tag_prefix=str(body.get("tag_prefix") or ""),
         owner_subject=str(body.get("owner_subject") or "owner@lincinnovations.com"),
@@ -1464,7 +1483,9 @@ async def spaces_api_route(request: Request[State]) -> Response:
 
 @mcp.custom_route("/api/billing/checkout", methods=["POST"])
 async def billing_checkout_route(request: Request[State]) -> Response:
-    body = await request.json()
+    body = await _json_object(request)
+    if body is None:
+        return _bad_body()
     tier = str(body.get("tier") or "pro").lower()
     space_id = str(body.get("space_id") or db.DEFAULT_SPACE_ID)
     prices = {

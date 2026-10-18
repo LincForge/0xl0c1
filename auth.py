@@ -106,6 +106,7 @@ def mint_access_token(
         "role": role,
         "exp": int(time.time()) + ttl_seconds,
         "jti": secrets.token_hex(6),
+        "typ": "at",
     }
     raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
     sig = hmac.new(_signing_key(), raw, hashlib.sha256).digest()
@@ -124,6 +125,9 @@ def verify_access_token(token: str) -> AuthClaims | None:
             return None
         data = json.loads(raw.decode("utf-8"))
         if not isinstance(data, dict):
+            return None
+        # Codes and tokens share a signing key and the prefix is unsigned: check the signed type.
+        if data.get("typ", "at") != "at" or "cc" in data:
             return None
         exp = int(data.get("exp", 0))
         if exp < int(time.time()):
@@ -156,6 +160,7 @@ def mint_authorization_code(
         "space_id": space_id,
         "sub": subject,
         "exp": int(time.time()) + ttl_seconds,
+        "typ": "ac",
     }
     raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
     sig = hmac.new(_signing_key(), raw, hashlib.sha256).digest()
@@ -180,6 +185,8 @@ def exchange_authorization_code(
             return None
         data = json.loads(raw.decode("utf-8"))
         if not isinstance(data, dict):
+            return None
+        if data.get("typ", "ac") != "ac" or "cc" not in data:
             return None
         if int(data.get("exp", 0)) < int(time.time()):
             return None

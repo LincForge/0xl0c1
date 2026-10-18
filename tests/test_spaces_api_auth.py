@@ -137,3 +137,26 @@ def test_contract_hostile_credentials_get_401_not_data_or_500(live_server: str, 
 def test_contract_forged_legacy_signed_token_gets_401(live_server: str) -> None:
     resp = httpx.get(f"{live_server}/api/spaces", headers=_auth(_forged_access_token("default")))
     assert resp.status_code == 401
+
+
+@pytest.mark.parametrize("body", [b"", b"not json", b"[1]", b'"x"', b"null"])
+def test_contract_malformed_create_body_gets_400_not_500(live_server: str, body: bytes) -> None:
+    resp = httpx.post(
+        f"{live_server}/api/spaces",
+        content=body,
+        headers={**_auth(ROOT_TOKEN), "Content-Type": "application/json"},
+    )
+    assert resp.status_code == 400
+
+
+def test_contract_non_string_slug_is_coerced_not_crashed(live_server: str) -> None:
+    resp = httpx.post(f"{live_server}/api/spaces", json={"name": "Numeric Slug", "slug": 5}, headers=_auth(ROOT_TOKEN))
+    assert resp.status_code == 201, resp.text
+
+
+@pytest.mark.parametrize("body", [b"", b"not json", b"[1]"])
+def test_contract_malformed_checkout_body_gets_400_not_500(live_server: str, body: bytes) -> None:
+    resp = httpx.post(
+        f"{live_server}/api/billing/checkout", content=body, headers={"Content-Type": "application/json"}
+    )
+    assert resp.status_code == 400
