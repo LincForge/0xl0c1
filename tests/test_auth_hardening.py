@@ -161,7 +161,9 @@ def test_contract_init_db_redacts_legacy_plaintext_rows(sqlite_db: Path) -> None
 
 
 def _new_space(server: str, name: str) -> dict[str, Any]:
-    resp = httpx.post(f"{server}/api/spaces", json={"name": name})
+    resp = httpx.post(
+        f"{server}/api/spaces", json={"name": name}, headers={"Authorization": "Bearer root-token"}
+    )
     assert resp.status_code == 201
     body: dict[str, Any] = resp.json()
     return body

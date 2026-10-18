@@ -1409,11 +1409,44 @@ async def oauth_token_route(request: Request[State]) -> Response:
     return JSONResponse(exchanged)
 
 
+def _bearer_space_id(request: Request[State]) -> str | None:
+    """Space bound to the request's Bearer credential (root token, space token or OAuth access token)."""
+    scheme, _, raw = request.headers.get("authorization", "").partition(" ")
+    raw = raw.strip()
+    if scheme.lower() != "bearer" or not raw:
+        return None
+    if raw.startswith("loci_at_"):
+        claims = verify_access_token(raw)
+        return claims.space_id if claims is not None else None
+    sp = _resolve_space_from_token_param(raw)
+    return str(sp["id"]) if sp is not None else None
+
+
+def _unauthorized(description: str) -> JSONResponse:
+    return JSONResponse(
+        {"error": "unauthorized", "error_description": description},
+        status_code=401,
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
 @mcp.custom_route("/api/spaces", methods=["GET", "POST"])
 async def spaces_api_route(request: Request[State]) -> Response:
+    """List spaces (operator: all, tenant: its own) or create one (operator only)."""
     db.init_db()
+    caller = _bearer_space_id(request)
+    if caller is None:
+        return _unauthorized("Bearer space token or OAuth access token required.")
     if request.method == "GET":
-        return JSONResponse({"spaces": db.list_all_spaces()})
+        spaces = db.list_all_spaces()
+        if caller != db.DEFAULT_SPACE_ID:
+            spaces = [s for s in spaces if str(s["id"]) == caller]
+        return JSONResponse({"spaces": spaces})
+    if caller != db.DEFAULT_SPACE_ID:
+        return JSONResponse(
+            {"error": "forbidden", "error_description": "Only the operator creates spaces."},
+            status_code=403,
+        )
     body = await request.json()
     created = db.create_space(
         name=str(body.get("name") or "New Space"),
@@ -1477,18 +1510,7 @@ async def pricing_page_route(request: Request[State]) -> Response:  # noqa: ARG0
 
 @mcp.custom_route("/", methods=["GET"])
 async def landing_console_route(request: Request[State]) -> Response:
-    db.init_db()
-    spaces = db.list_all_spaces()
     root = _base_url(request)
-    rows_html = "".join(
-        f"<tr><td><strong>{html.escape(str(s['name']))}</strong></td>"
-        f"<td><code>{html.escape(str(s['slug']))}</code></td>"
-        f"<td>{html.escape(str(s['tier']))}</td>"
-        f"<td>{s['object_count']} objects · {s['lesson_count']} lessons</td>"
-        f'<td><a href="/oauth/authorize">OAuth 2.1 Connect</a> · '
-        f'<a href="/pricing">Plans &amp; Tag Kits</a></td></tr>'
-        for s in spaces
-    )
     page = f"""<!doctype html><html><head><meta charset="utf-8"><title>LINC Loci (0xL0C1) — Multi-Tenant Physical Memory Cloud</title>
     <style>body{{background:#0b0d10;color:#e6edf3;font:14px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;max-width:1080px;margin:0 auto;padding:32px;}}
     .card{{background:#13171d;border:1px solid #222933;border-radius:8px;padding:20px;margin-bottom:20px;}}
@@ -1498,9 +1520,10 @@ async def landing_console_route(request: Request[State]) -> Response:
     <h1>0xL0C1 · LINC Loci Cloud Console</h1>
     <p>Memory lives on the physical object, not the app. Multi-tenant MCP server on Google Cloud Run + Cloud SQL PostgreSQL 16 (RLS) + Vertex AI.</p>
     <div class="card">
-      <h3>Active Spaces ({len(spaces)})</h3>
-      <table><thead><tr><th>Name</th><th>Slug</th><th>Tier</th><th>Graph</th><th>Actions</th></tr></thead>
-      <tbody>{rows_html}</tbody></table>
+      <h3>Your Space</h3>
+      <p>Spaces are private. Open yours at its capability URL (<code>/loci-&lt;space_token&gt;/</code>), or
+      <a href="/oauth/authorize">connect an assistant with OAuth 2.1</a> using the Space's access token.
+      · <a href="/pricing">Plans &amp; Tag Kits</a></p>
     </div>
     <div class="card">
       <h3>OAuth 2.1 &amp; MCP Connector Endpoints</h3>
