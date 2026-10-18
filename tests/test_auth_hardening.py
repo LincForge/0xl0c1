@@ -161,7 +161,9 @@ def test_contract_init_db_redacts_legacy_plaintext_rows(sqlite_db: Path) -> None
 
 
 def _new_space(server: str, name: str) -> dict[str, Any]:
-    resp = httpx.post(f"{server}/api/spaces", json={"name": name})
+    resp = httpx.post(
+        f"{server}/api/spaces", json={"name": name}, headers={"Authorization": "Bearer root-token"}
+    )
     assert resp.status_code == 201
     body: dict[str, Any] = resp.json()
     return body
@@ -367,3 +369,56 @@ def test_contract_non_ascii_tokens_are_rejected_not_crashed(live_server: str, to
     assert state.status_code == 404
     authz = _authorize(live_server, space_token=token)
     assert authz.status_code == 401
+
+
+# ---------------------------------------------------------------- codes and access tokens are not interchangeable
+
+
+def _code_for(server: str, space_token: str) -> str:
+    resp = _authorize(server, space_token=space_token)
+    assert resp.status_code in (302, 303), resp.text
+    return resp.headers["location"].split("code=", 1)[1].split("&", 1)[0]
+
+
+def test_contract_authorization_code_is_not_an_access_token(live_server: str) -> None:
+    sp = _new_space(live_server, "Code Not Token")
+    code = _code_for(live_server, sp["capability_token"])
+    relabelled = "loci_at_" + code[len("loci_ac_") :]
+    listed = httpx.get(f"{live_server}/api/spaces", headers={"Authorization": f"Bearer {relabelled}"})
+    assert listed.status_code == 401
+    mcp = httpx.post(
+        f"{live_server}/mcp",
+        headers={
+            "Authorization": f"Bearer {relabelled}",
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+        },
+        json={"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "list_spaces", "arguments": {}}},
+    )
+    assert mcp.status_code == 401
+
+
+def test_contract_access_token_is_not_an_authorization_code(live_server: str) -> None:
+    sp = _new_space(live_server, "Token Not Code")
+    issued = httpx.post(
+        f"{live_server}/oauth/token",
+        data={"grant_type": "client_credentials", "client_secret": sp["capability_token"]},
+    )
+    assert issued.status_code == 200, issued.text
+    relabelled = "loci_ac_" + issued.json()["access_token"][len("loci_at_") :]
+    swapped = httpx.post(
+        f"{live_server}/oauth/token",
+        data={"grant_type": "authorization_code", "code": relabelled, "code_verifier": "anything"},
+    )
+    assert swapped.status_code == 400
+    assert "access_token" not in swapped.text
+
+
+def test_access_tokens_minted_before_the_type_claim_still_verify(no_env_secret: Path) -> None:
+    import auth
+
+    payload = {"space_id": "sp_x", "sub": "u", "role": "writer", "exp": int(time.time()) + 600, "jti": "abc"}
+    raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    sig = hmac.new(auth._signing_key(), raw, hashlib.sha256).digest()
+    claims = auth.verify_access_token(f"loci_at_{_b64u(raw)}.{_b64u(sig)}")
+    assert claims is not None and claims.space_id == "sp_x"

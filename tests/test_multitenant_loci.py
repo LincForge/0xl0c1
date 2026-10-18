@@ -253,10 +253,14 @@ def test_oauth21_and_web_console_http_endpoints(live_server: str) -> None:
 
     # 3. Create two isolated spaces via API
     sp1 = httpx.post(
-        f"{server}/api/spaces", json={"name": "Bench Space 1", "tier": "pro"}
+        f"{server}/api/spaces",
+        json={"name": "Bench Space 1", "tier": "pro"},
+        headers={"Authorization": "Bearer root-token"},
     ).json()
     sp2 = httpx.post(
-        f"{server}/api/spaces", json={"name": "Field Space 2", "tier": "team"}
+        f"{server}/api/spaces",
+        json={"name": "Field Space 2", "tier": "team"},
+        headers={"Authorization": "Bearer root-token"},
     ).json()
     assert sp1["space_id"] != sp2["space_id"]
     assert sp1["capability_token"] != sp2["capability_token"]
