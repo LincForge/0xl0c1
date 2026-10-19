@@ -320,8 +320,10 @@ IMAGE_ONLY=1 EXPECTED_PROJECT=<project> ./scripts/bootstrap_gcp.sh
 ### Rotating the signing secret
 
 On Cloud Run, OAuth codes and access tokens are signed only with `LOCI_AUTH_SECRET`, never with the
-root URL token. `just deploy-gcp` maps it from the `loci-auth-secret` Secret Manager secret, so run
-this one-time setup **before** the next deploy, or the new revision refuses to start:
+root URL token. Both `just deploy-gcp` and `scripts/bootstrap_gcp.sh` map it from the
+`loci-auth-secret` Secret Manager secret. `scripts/bootstrap_gcp.sh` (including `IMAGE_ONLY=1`)
+creates that secret from 48 random bytes when it is missing. Before the next `just deploy-gcp`, run
+this one-time setup, or the new revision refuses to start:
 
 ```bash
 head -c 48 /dev/urandom | base64 | tr -d '\n' | \

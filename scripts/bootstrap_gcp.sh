@@ -11,7 +11,8 @@
 #
 # Order:
 #   1. Project + billing + APIs, Artifact Registry repo, Secret Manager entries
-#      (path token, database URL), Cloud SQL instance (async, ~8-10 min).
+#      (path token, OAuth signing secret, database URL), Cloud SQL instance
+#      (async, ~8-10 min).
 #   2. Build and push the linux/amd64 image.
 #   3. IAM for the runtime service account (Cloud SQL client, secret accessor).
 #   4. Wait for Cloud SQL, create the `loci` database, deploy Cloud Run with the
@@ -67,7 +68,7 @@ deploy() {
   gcloud run deploy "$SERVICE" --project "$PROJECT" --region "$REGION" \
     --image "$IMAGE" --port 8130 --allow-unauthenticated \
     --add-cloudsql-instances "$CONN" \
-    --set-secrets "LOCI_DATABASE_URL=loci-db-url:latest,LOCI_PATH_TOKEN=loci-path-token:latest" \
+    --set-secrets "LOCI_DATABASE_URL=loci-db-url:latest,LOCI_PATH_TOKEN=loci-path-token:latest,LOCI_AUTH_SECRET=loci-auth-secret:latest" \
     --min-instances 1 --max-instances 3 --cpu 1 --memory 512Mi --timeout 300 \
     --quiet
   URL=$(gcloud run services describe "$SERVICE" --project "$PROJECT" --region "$REGION" --format='value(status.url)')
@@ -85,8 +86,17 @@ deploy() {
   echo "  connector URL written to .loci-gcp-url (gitignored; treat as a password)"
 }
 
+# OAuth signing key (auth.py): on Cloud Run the server refuses to start without it,
+# and it must differ from the path token. 48 random bytes, never echoed.
+ensure_auth_secret() {
+  if ! gcloud secrets describe loci-auth-secret --project "$PROJECT" >/dev/null 2>&1; then
+    python3 -c 'import secrets;print(secrets.token_urlsafe(48),end="")' |
+      gcloud secrets create loci-auth-secret --data-file=- --project "$PROJECT"
+  fi
+}
+
 if [[ "${IMAGE_ONLY:-}" == "1" ]]; then
-  build_and_push; deploy; exit 0
+  ensure_auth_secret; build_and_push; deploy; exit 0
 fi
 
 # ---- 1/4: project, billing, APIs, registry, secrets, SQL (async)
@@ -107,6 +117,7 @@ if ! gcloud secrets describe loci-path-token --project "$PROJECT" >/dev/null 2>&
   python3 -c 'import secrets,string;a=string.ascii_lowercase+string.digits;print("".join(secrets.choice(a) for _ in range(24)),end="")' |
     gcloud secrets create loci-path-token --data-file=- --project "$PROJECT"
 fi
+ensure_auth_secret
 if ! gcloud sql instances describe "$INSTANCE" --project "$PROJECT" >/dev/null 2>&1; then
   DBPW=$(python3 -c 'import secrets,string;a=string.ascii_letters+string.digits;print("".join(secrets.choice(a) for _ in range(32)),end="")')
   gcloud sql instances create "$INSTANCE" --project "$PROJECT" --region "$REGION" \
