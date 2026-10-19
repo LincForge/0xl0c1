@@ -101,6 +101,82 @@ def test_contract_cloud_run_without_secret_fails_fast(
     assert not no_env_secret.exists()
 
 
+ROOT_URL_TOKEN = "operator-root-url-token-0123456789abcdef"
+CLOUD_RUN_SECRET = "c" * 48
+
+
+def test_contract_cloud_run_ignores_path_token_as_signing_key(
+    no_env_secret: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from auth import assert_signing_configured, mint_access_token
+
+    monkeypatch.setenv("K_SERVICE", "loci")
+    monkeypatch.setenv("LOCI_PATH_TOKEN", ROOT_URL_TOKEN)
+    with pytest.raises(RuntimeError) as startup:
+        assert_signing_configured()
+    with pytest.raises(RuntimeError) as minting:
+        mint_access_token(space_id="sp_a")
+    for raised in (startup, minting):
+        message = str(raised.value)
+        assert ROOT_URL_TOKEN not in message
+        assert "LOCI_AUTH_SECRET" in message and "loci-auth-secret" in message
+    assert not no_env_secret.exists()
+
+
+@pytest.mark.parametrize(
+    "secret",
+    [ROOT_URL_TOKEN, "s" * 31, " " * 48],
+    ids=["equal-to-path-token", "31-chars", "whitespace-only"],
+)
+def test_contract_cloud_run_rejects_weak_or_reused_secret(
+    no_env_secret: Path, monkeypatch: pytest.MonkeyPatch, secret: str
+) -> None:
+    from auth import assert_signing_configured, mint_access_token
+
+    monkeypatch.setenv("K_SERVICE", "loci")
+    monkeypatch.setenv("LOCI_PATH_TOKEN", ROOT_URL_TOKEN)
+    monkeypatch.setenv("LOCI_AUTH_SECRET", secret)
+    with pytest.raises(RuntimeError) as startup:
+        assert_signing_configured()
+    with pytest.raises(RuntimeError):
+        mint_access_token(space_id="sp_a")
+    message = str(startup.value)
+    assert ROOT_URL_TOKEN not in message
+    assert secret.strip() == "" or secret not in message
+
+
+def test_contract_cloud_run_accepts_a_strong_distinct_secret(
+    no_env_secret: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from auth import assert_signing_configured, mint_access_token, verify_access_token
+
+    monkeypatch.setenv("K_SERVICE", "loci")
+    monkeypatch.setenv("LOCI_PATH_TOKEN", ROOT_URL_TOKEN)
+    monkeypatch.setenv("LOCI_AUTH_SECRET", CLOUD_RUN_SECRET)
+    assert_signing_configured()
+    claims = verify_access_token(mint_access_token(space_id="sp_a"))
+    assert claims is not None and claims.space_id == "sp_a"
+    assert not no_env_secret.exists()
+
+
+def test_cloud_run_rejects_a_token_signed_under_the_path_token(
+    no_env_secret: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from auth import verify_access_token
+
+    monkeypatch.setenv("K_SERVICE", "loci")
+    monkeypatch.setenv("LOCI_PATH_TOKEN", ROOT_URL_TOKEN)
+    monkeypatch.setenv("LOCI_AUTH_SECRET", CLOUD_RUN_SECRET)
+    assert verify_access_token(_forge_access_token(ROOT_URL_TOKEN, "sp_a")) is None
+    assert verify_access_token(_forge_access_token(CLOUD_RUN_SECRET, "sp_a")) is not None
+
+
+def test_deploy_gcp_maps_the_signing_secret() -> None:
+    justfile = (ROOT / "justfile").read_text()
+    recipe = justfile.split("\ndeploy-gcp:", 1)[1].split("\n\n", 1)[0]
+    assert "LOCI_AUTH_SECRET=loci-auth-secret:latest" in recipe
+
+
 # ---------------------------------------------------------------- tokens at rest
 
 
