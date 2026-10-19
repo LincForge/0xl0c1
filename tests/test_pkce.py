@@ -8,6 +8,7 @@ invalid_grant, never a 500.
 from __future__ import annotations
 
 import base64
+import functools
 import hashlib
 import sys
 from pathlib import Path
@@ -20,7 +21,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 CALLBACK = "https://claude.ai/api/mcp/auth_callback"
-CLIENT_ID = "loci_client_pkce"
+CLIENT_ID = "loci_client_pkce"  # in-process only; the live server needs a registered one
 VERIFIER = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
 CHALLENGE = (
     base64.urlsafe_b64encode(hashlib.sha256(VERIFIER.encode("ascii")).digest())
@@ -38,9 +39,18 @@ def _new_space(server: str, name: str) -> dict[str, Any]:
     return body
 
 
-def _params(**overrides: str | None) -> dict[str, str]:
+@functools.cache
+def _client_id(server: str) -> str:
+    """A client registered for CALLBACK, so authorize refuses only for the PKCE reason."""
+    resp = httpx.post(f"{server}/oauth/register", json={"redirect_uris": [CALLBACK]})
+    assert resp.status_code == 201, resp.text
+    client_id: str = resp.json()["client_id"]
+    return client_id
+
+
+def _params(server: str, **overrides: str | None) -> dict[str, str]:
     params: dict[str, str | None] = {
-        "client_id": CLIENT_ID,
+        "client_id": _client_id(server),
         "redirect_uri": CALLBACK,
         "response_type": "code",
         "state": "st",
@@ -55,7 +65,7 @@ def _token(server: str, code: str, verifier: str | None) -> httpx.Response:
     data = {
         "grant_type": "authorization_code",
         "code": code,
-        "client_id": CLIENT_ID,
+        "client_id": _client_id(server),
         "redirect_uri": CALLBACK,
     }
     if verifier is not None:
@@ -92,29 +102,31 @@ def test_contract_authorize_requires_s256_challenge(
 ) -> None:
     sp = _new_space(live_server, "PKCE Authorize")
 
-    page = httpx.get(f"{live_server}/oauth/authorize", params=_params(**overrides))
+    page = httpx.get(f"{live_server}/oauth/authorize", params=_params(live_server, **overrides))
     assert page.status_code == 400
     assert "<form" not in page.text
+    assert "S256 PKCE is required" in page.text  # refused for PKCE, not the client binding
 
     minted = httpx.post(
         f"{live_server}/oauth/authorize",
-        data=_params(**overrides, space_token=sp["capability_token"], subject="tech@example.com"),
+        data=_params(live_server, **overrides, space_token=sp["capability_token"], subject="tech@example.com"),
         follow_redirects=False,
     )
     assert minted.status_code == 400
     assert "location" not in minted.headers
     assert "code=" not in minted.text
+    assert "S256 PKCE is required" in minted.text
 
 
 def test_authorize_accepts_a_well_formed_s256_challenge(live_server: str) -> None:
     sp = _new_space(live_server, "PKCE Happy")
-    page = httpx.get(f"{live_server}/oauth/authorize", params=_params())
+    page = httpx.get(f"{live_server}/oauth/authorize", params=_params(live_server))
     assert page.status_code == 200
     assert "<form" in page.text
 
     minted = httpx.post(
         f"{live_server}/oauth/authorize",
-        data=_params(space_token=sp["capability_token"], subject="tech@example.com"),
+        data=_params(live_server, space_token=sp["capability_token"], subject="tech@example.com"),
         follow_redirects=False,
     )
     assert minted.status_code == 302
@@ -147,7 +159,7 @@ def test_contract_code_without_challenge_does_not_exchange(
 
     sp = _new_space(live_server, "PKCE Direct Mint")
     code = mint_authorization_code(
-        client_id=CLIENT_ID,
+        client_id=_client_id(live_server),
         redirect_uri=CALLBACK,
         code_challenge=challenge,
         code_challenge_method=method,
@@ -163,7 +175,7 @@ def test_a_directly_minted_s256_code_still_exchanges(live_server: str, server_si
 
     sp = _new_space(live_server, "PKCE Direct Mint OK")
     code = mint_authorization_code(
-        client_id=CLIENT_ID,
+        client_id=_client_id(live_server),
         redirect_uri=CALLBACK,
         code_challenge=CHALLENGE,
         code_challenge_method="S256",
@@ -190,7 +202,7 @@ def test_contract_hostile_verifier_is_invalid_grant(live_server: str, verifier: 
     sp = _new_space(live_server, "PKCE Hostile Verifier")
     minted = httpx.post(
         f"{live_server}/oauth/authorize",
-        data=_params(space_token=sp["capability_token"], subject="tech@example.com"),
+        data=_params(live_server, space_token=sp["capability_token"], subject="tech@example.com"),
         follow_redirects=False,
     )
     assert minted.status_code == 302
@@ -216,7 +228,9 @@ def test_contract_exchange_rejects_hostile_verifier_without_raising(
         space_id="sp_x",
         subject="u",
     )
-    assert exchange_authorization_code(code=code, code_verifier=verifier) is None
+    assert exchange_authorization_code(
+        code=code, code_verifier=verifier, client_id=CLIENT_ID, redirect_uri=CALLBACK
+    ) is None
 
 
 def test_metadata_advertises_only_s256(live_server: str) -> None:

@@ -383,3 +383,79 @@ def test_legacy_client_id_is_accepted_only_for_known_connector_callbacks(live_se
         "http://claude.ai/api/mcp/auth_callback",
     ):
         _assert_refused(live_server, LEGACY_CLIENT_ID, uri, token)
+
+
+# ---------------------------------------------------------------- in-process: the same code the live server runs
+
+
+def _register_in_process(body: Any) -> httpx.Response:
+    from starlette.applications import Starlette
+    from starlette.routing import Route
+    from starlette.testclient import TestClient
+
+    import server
+
+    app = Starlette(routes=[Route("/oauth/register", server.oauth_register_route, methods=["POST"])])
+    with TestClient(app) as client:
+        if isinstance(body, dict):
+            return client.post("/oauth/register", json=body)
+        return client.post("/oauth/register", content=body, headers={"Content-Type": "application/json"})
+
+
+@pytest.mark.parametrize("body,error", list(BAD_REGISTRATIONS.values()), ids=list(BAD_REGISTRATIONS))
+def test_register_route_rejects_bad_metadata_in_process(
+    server_signing_env: None, body: Any, error: str
+) -> None:
+    resp = _register_in_process(body)
+    assert resp.status_code == 400
+    assert resp.json()["error"] == error
+
+
+def test_register_route_signs_the_registration_in_process(server_signing_env: None) -> None:
+    from auth import registered_client
+
+    resp = _register_in_process({"redirect_uris": [CALLBACK], "client_name": None})
+    assert resp.status_code == 201
+    out = resp.json()
+    assert out["client_name"] == "MCP Connector"
+    client = registered_client(out["client_id"])
+    assert client is not None
+    assert client.redirect_uris == [CALLBACK] and client.name == "MCP Connector"
+
+
+def test_signed_non_json_client_id_is_rejected(server_signing_env: None) -> None:
+    import auth
+
+    raw = b"\xff not json"
+    sig = hmac.new(auth._dcr_key(), raw, hashlib.sha256).digest()
+    assert auth.verify_client_id(f"loci_client_{_b64u(raw)}.{_b64u(sig)}") is None
+    assert auth.verify_client_id("loci_client_" + "A" * 43) is None  # no signature part
+
+
+def test_redirect_binding_helpers_in_process(server_signing_env: None) -> None:
+    import server
+    from auth import mint_client_id
+
+    client_id = mint_client_id([CALLBACK], "<i>X</i>")
+    assert server._client_redirect_allowed(client_id, CALLBACK)
+    assert not server._client_redirect_allowed(client_id, EVIL)
+    assert not server._client_redirect_allowed("loci_client_nope", CALLBACK)
+
+    assert server._client_redirect_allowed(LEGACY_CLIENT_ID, CALLBACK)
+    assert server._client_redirect_allowed(LEGACY_CLIENT_ID, "https://chat.openai.com/aip/cb")
+    assert server._client_redirect_allowed(LEGACY_CLIENT_ID, "http://127.0.0.1:9/cb")
+    for uri in (EVIL, "http://claude.ai/cb", "javascript:alert(1)", "https://[::1", ""):
+        assert not server._client_redirect_allowed(LEGACY_CLIENT_ID, uri), uri
+
+    assert server._authorize_precondition_error(client_id, CALLBACK, CHALLENGE, "S256") is None
+    unregistered = server._authorize_precondition_error(client_id, EVIL, CHALLENGE, "S256")
+    assert unregistered is not None and unregistered.status_code == 400
+    no_pkce = server._authorize_precondition_error(client_id, CALLBACK, "", "S256")
+    assert no_pkce is not None and b"S256 PKCE is required" in no_pkce.body
+
+    assert server._consent_destination(client_id, CALLBACK) == (
+        "<strong>&lt;i&gt;X&lt;/i&gt;</strong> at <strong>claude.ai</strong>"
+    )
+    unnamed = mint_client_id([CALLBACK], "")
+    assert server._consent_destination(unnamed, CALLBACK) == "<strong>claude.ai</strong>"
+    assert server._consent_destination(LEGACY_CLIENT_ID, CALLBACK) == "<strong>claude.ai</strong>"
