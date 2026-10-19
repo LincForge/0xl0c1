@@ -220,7 +220,13 @@ def test_contract_authorize_page_does_not_list_tenants(live_server: str) -> None
     sp = _new_space(live_server, "Hidden Tenant Name")
     page = httpx.get(
         f"{live_server}/oauth/authorize",
-        params={"client_id": "c", "redirect_uri": CALLBACK, "state": "s"},
+        params={
+            "client_id": "c",
+            "redirect_uri": CALLBACK,
+            "state": "s",
+            "code_challenge": CHALLENGE,
+            "code_challenge_method": "S256",
+        },
     )
     assert page.status_code == 200
     assert "Hidden Tenant Name" not in page.text

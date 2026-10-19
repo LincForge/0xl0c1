@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import time
 from dataclasses import dataclass
@@ -142,6 +143,30 @@ def verify_access_token(token: str) -> AuthClaims | None:
         return None
 
 
+# OAuth 2.1 makes PKCE mandatory and this server accepts only S256: a challenge is the
+# unpadded base64url SHA-256 (43 chars), a verifier is RFC 7636's 43-128 unreserved chars.
+_S256_CHALLENGE_RE = re.compile(r"[A-Za-z0-9_-]{43}")
+_PKCE_VERIFIER_RE = re.compile(r"[A-Za-z0-9._~-]{43,128}")
+
+
+def valid_s256_challenge(code_challenge: str, code_challenge_method: str) -> bool:
+    """True only for an S256 method and a well-formed S256 code_challenge."""
+    return code_challenge_method == "S256" and bool(
+        _S256_CHALLENGE_RE.fullmatch(code_challenge)
+    )
+
+
+def _pkce_verifier_matches(data: dict[str, Any], code_verifier: str) -> bool:
+    """A code exchanges only with an S256 challenge and the verifier that hashes to it."""
+    cc = data.get("cc")
+    if not isinstance(cc, str) or not valid_s256_challenge(cc, str(data.get("ccm", ""))):
+        return False
+    if not _PKCE_VERIFIER_RE.fullmatch(code_verifier):
+        return False
+    computed = _b64u_encode(hashlib.sha256(code_verifier.encode("ascii")).digest())
+    return hmac.compare_digest(computed, cc)
+
+
 def mint_authorization_code(
     *,
     client_id: str,
@@ -194,17 +219,8 @@ def exchange_authorization_code(
             return None
         if redirect_uri and data.get("uri") and str(data["uri"]) != redirect_uri:
             return None
-        cc = str(data.get("cc", ""))
-        ccm = str(data.get("ccm", "S256")).upper()
-        if cc:
-            if ccm == "S256":
-                computed = _b64u_encode(
-                    hashlib.sha256(code_verifier.encode("ascii")).digest()
-                )
-            else:
-                computed = code_verifier
-            if not hmac.compare_digest(computed, cc):
-                return None
+        if not _pkce_verifier_matches(data, code_verifier):
+            return None
         space_id = str(data["space_id"])
         subject = str(data.get("sub", "oauth-user"))
         access_token = mint_access_token(
@@ -232,7 +248,7 @@ def oauth_server_metadata(base_url: str) -> dict[str, Any]:
         "response_types_supported": ["code"],
         "grant_types_supported": ["authorization_code", "client_credentials"],
         "token_endpoint_auth_methods_supported": ["none", "client_secret_post"],
-        "code_challenge_methods_supported": ["S256", "plain"],
+        "code_challenge_methods_supported": ["S256"],
         "scopes_supported": ["mcp:tools", "loci:read", "loci:write"],
     }
 

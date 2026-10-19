@@ -44,6 +44,7 @@ from auth import (
     mint_authorization_code,
     oauth_protected_resource_metadata,
     oauth_server_metadata,
+    valid_s256_challenge,
     verify_access_token,
 )
 from embeddings import cosine_similarity, get_embedding_provider
@@ -1277,6 +1278,12 @@ async def oauth_register_route(request: Request[State]) -> Response:
     )
 
 
+def _pkce_required_response() -> Response:
+    return HTMLResponse(
+        "Invalid code_challenge: S256 PKCE is required.", status_code=400
+    )
+
+
 @mcp.custom_route("/oauth/authorize", methods=["GET", "POST"])
 async def oauth_authorize_route(request: Request[State]) -> Response:
     db.init_db()
@@ -1294,6 +1301,10 @@ async def oauth_authorize_route(request: Request[State]) -> Response:
                 "to start it.",
                 status_code=400,
             )
+        if not valid_s256_challenge(
+            params.get("code_challenge", ""), params.get("code_challenge_method", "")
+        ):
+            return _pkce_required_response()
         destination = html.escape(urlsplit(redirect_uri).hostname or "")
         hidden_inputs = "".join(
             f'<input type="hidden" name="{html.escape(k)}" value="{html.escape(v)}">'
@@ -1319,11 +1330,13 @@ async def oauth_authorize_route(request: Request[State]) -> Response:
     redirect_uri = str(form.get("redirect_uri") or "")
     state = str(form.get("state") or "")
     code_challenge = str(form.get("code_challenge") or "")
-    code_challenge_method = str(form.get("code_challenge_method") or "S256")
+    code_challenge_method = str(form.get("code_challenge_method") or "")
     subject = str(form.get("subject") or "oauth-user")
 
     if not _safe_redirect_uri(redirect_uri):
         return HTMLResponse("Invalid redirect_uri.", status_code=400)
+    if not valid_s256_challenge(code_challenge, code_challenge_method):
+        return _pkce_required_response()
     space = _resolve_space_from_token_param(str(form.get("space_token") or ""))
     if space is None:
         return HTMLResponse(
