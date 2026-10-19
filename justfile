@@ -86,7 +86,7 @@ deploy-gcp:
         --region=us-west1 \
         --image=us-west1-docker.pkg.dev/loci-0xl0c1/loci/0xl0c1:latest \
         --add-cloudsql-instances=loci-0xl0c1:us-west1:loci \
-        --set-secrets=LOCI_DATABASE_URL=loci-db-url:latest,LOCI_PATH_TOKEN=loci-path-token:latest \
+        --set-secrets=LOCI_DATABASE_URL=loci-db-url:latest,LOCI_PATH_TOKEN=loci-path-token:latest,LOCI_AUTH_SECRET=loci-auth-secret:latest \
         --set-env-vars=LOCI_EMBEDDING_PROVIDER=vertex,LOCI_GCP_PROJECT=loci-0xl0c1,LOCI_GCP_REGION=us-west1,LOCI_SEED_SHOWCASE=1 \
         --min-instances=1 \
         --max-instances=3 \

@@ -269,7 +269,7 @@ To expose the local server over public HTTPS via Tailscale Funnel:
 | `LOCI_HOST` | `127.0.0.1` | Bind address (`0.0.0.0` inside the container) |
 | `LOCI_PORT` | `8130` | Bind port |
 | `LOCI_PATH_TOKEN` | generated into `.loci-token` | The capability-URL path segment: `/loci-<token>/…` |
-| `LOCI_AUTH_SECRET` | `LOCI_PATH_TOKEN`, else a random secret in the gitignored `.loci-auth-secret` | HMAC key for OAuth codes and access tokens. Set it in production; on Cloud Run the server refuses to start without it or `LOCI_PATH_TOKEN`. |
+| `LOCI_AUTH_SECRET` | Local runs: `LOCI_PATH_TOKEN`, else a random secret in the gitignored `.loci-auth-secret`. Cloud Run: none. | HMAC key for OAuth codes and access tokens. On Cloud Run it is the only accepted key: the server refuses to start when it is unset, shorter than 32 chars, or equal to `LOCI_PATH_TOKEN`. `just deploy-gcp` maps it from the `loci-auth-secret` Secret Manager secret. |
 | `LOCI_DB` | `./loci.db` | SQLite file, when the backend is SQLite |
 | `LOCI_DATABASE_URL` | — | Full Postgres DSN. Its presence selects the Postgres backend. |
 | `LOCI_DB_HOST` + `LOCI_DB_SECRET` + `LOCI_DB_NAME` | — | The hosted AWS path: RDS endpoint, the RDS-managed `{"username","password"}` secret as JSON, and the database name. Presence of `LOCI_DB_HOST` also selects Postgres. |
@@ -316,6 +316,26 @@ that stack and writes its URLs to the gitignored `.loci-gcp-url`:
 ```bash
 IMAGE_ONLY=1 EXPECTED_PROJECT=<project> ./scripts/bootstrap_gcp.sh
 ```
+
+### Rotating the signing secret
+
+On Cloud Run, OAuth codes and access tokens are signed only with `LOCI_AUTH_SECRET`, never with the
+root URL token. Both `just deploy-gcp` and `scripts/bootstrap_gcp.sh` map it from the
+`loci-auth-secret` Secret Manager secret. `scripts/bootstrap_gcp.sh` (including `IMAGE_ONLY=1`)
+creates that secret from 48 random bytes when it is missing. Before the next `just deploy-gcp`, run
+this one-time setup, or the new revision refuses to start:
+
+```bash
+head -c 48 /dev/urandom | base64 | tr -d '\n' | \
+  gcloud secrets create loci-auth-secret --project=<project> --data-file=-
+gcloud secrets add-iam-policy-binding loci-auth-secret --project=<project> \
+  --member="serviceAccount:<cloud-run-runtime-service-account>" \
+  --role=roles/secretmanager.secretAccessor
+```
+
+To rotate later, add a new version (`gcloud secrets versions add loci-auth-secret --data-file=-`)
+and redeploy. Changing the secret invalidates every outstanding OAuth code and access token, so
+every connector re-authorizes once.
 
 ## License
 

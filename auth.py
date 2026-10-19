@@ -36,18 +36,43 @@ def _secret_file() -> Path:
 def _signing_secret() -> str:
     """The HMAC secret behind OAuth codes and access tokens.
 
-    Order: LOCI_AUTH_SECRET, then LOCI_PATH_TOKEN, then (local runs only) a random
-    per-install secret persisted 0600 next to the code. There is no built-in
-    constant: a known default would let anyone mint a token for any space.
+    On Cloud Run (K_SERVICE set) only LOCI_AUTH_SECRET counts. Local runs use
+    LOCI_AUTH_SECRET, then LOCI_PATH_TOKEN, then a random per-install secret
+    persisted 0600 next to the code. There is no built-in constant: a known
+    default would let anyone mint a token for any space.
     """
+    if _env("K_SERVICE"):
+        return _cloud_run_signing_secret()
     if secret := _env("LOCI_AUTH_SECRET") or _env("LOCI_PATH_TOKEN"):
         return secret
-    if _env("K_SERVICE"):
+    return _local_file_secret()
+
+
+_CLOUD_RUN_SECRET_HINT = (
+    "Set LOCI_AUTH_SECRET on Cloud Run from the loci-auth-secret Secret Manager secret"
+)
+
+
+def _cloud_run_signing_secret() -> str:
+    """LOCI_AUTH_SECRET only: the root URL token must never be the token-minting key.
+
+    Errors name the env var and the Secret Manager secret, never either value.
+    """
+    secret = _env("LOCI_AUTH_SECRET")
+    if secret is None:
+        raise RuntimeError(f"{_CLOUD_RUN_SECRET_HINT}: it is unset or blank.")
+    if len(secret) < _MIN_SECRET_LEN:
         raise RuntimeError(
-            "LOCI_AUTH_SECRET (or LOCI_PATH_TOKEN) must be set on Cloud Run: a "
-            "per-instance random secret would make tokens unverifiable across "
-            "instances and restarts."
+            f"{_CLOUD_RUN_SECRET_HINT}: it is shorter than {_MIN_SECRET_LEN} chars."
         )
+    path_token = _env("LOCI_PATH_TOKEN") or ""
+    if hmac.compare_digest(secret.encode("utf-8"), path_token.encode("utf-8")):
+        raise RuntimeError(f"{_CLOUD_RUN_SECRET_HINT}: it must differ from LOCI_PATH_TOKEN.")
+    return secret
+
+
+def _local_file_secret() -> str:
+    """A random per-install secret, created once and persisted 0600."""
     path = _secret_file()
     if not path.exists():
         # Write a private temp file, then hard-link it into place: the link is atomic

@@ -9,6 +9,7 @@ import base64
 import hashlib
 import hmac
 import json
+import re
 import sqlite3
 import stat
 import sys
@@ -99,6 +100,132 @@ def test_contract_cloud_run_without_secret_fails_fast(
     with pytest.raises(RuntimeError):
         mint_access_token(space_id="sp_a")
     assert not no_env_secret.exists()
+
+
+ROOT_URL_TOKEN = "operator-root-url-token-0123456789abcdef"
+CLOUD_RUN_SECRET = "c" * 48
+
+
+def test_contract_cloud_run_ignores_path_token_as_signing_key(
+    no_env_secret: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from auth import assert_signing_configured, mint_access_token
+
+    monkeypatch.setenv("K_SERVICE", "loci")
+    monkeypatch.setenv("LOCI_PATH_TOKEN", ROOT_URL_TOKEN)
+    with pytest.raises(RuntimeError) as startup:
+        assert_signing_configured()
+    with pytest.raises(RuntimeError) as minting:
+        mint_access_token(space_id="sp_a")
+    for raised in (startup, minting):
+        message = str(raised.value)
+        assert ROOT_URL_TOKEN not in message
+        assert "LOCI_AUTH_SECRET" in message and "loci-auth-secret" in message
+    assert not no_env_secret.exists()
+
+
+@pytest.mark.parametrize(
+    "secret",
+    [ROOT_URL_TOKEN, "s" * 31, " " * 48],
+    ids=["equal-to-path-token", "31-chars", "whitespace-only"],
+)
+def test_contract_cloud_run_rejects_weak_or_reused_secret(
+    no_env_secret: Path, monkeypatch: pytest.MonkeyPatch, secret: str
+) -> None:
+    from auth import assert_signing_configured, mint_access_token
+
+    monkeypatch.setenv("K_SERVICE", "loci")
+    monkeypatch.setenv("LOCI_PATH_TOKEN", ROOT_URL_TOKEN)
+    monkeypatch.setenv("LOCI_AUTH_SECRET", secret)
+    with pytest.raises(RuntimeError) as startup:
+        assert_signing_configured()
+    with pytest.raises(RuntimeError):
+        mint_access_token(space_id="sp_a")
+    message = str(startup.value)
+    assert ROOT_URL_TOKEN not in message
+    assert secret.strip() == "" or secret not in message
+
+
+def test_contract_cloud_run_accepts_a_strong_distinct_secret(
+    no_env_secret: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from auth import assert_signing_configured, mint_access_token, verify_access_token
+
+    monkeypatch.setenv("K_SERVICE", "loci")
+    monkeypatch.setenv("LOCI_PATH_TOKEN", ROOT_URL_TOKEN)
+    monkeypatch.setenv("LOCI_AUTH_SECRET", CLOUD_RUN_SECRET)
+    assert_signing_configured()
+    claims = verify_access_token(mint_access_token(space_id="sp_a"))
+    assert claims is not None and claims.space_id == "sp_a"
+    assert not no_env_secret.exists()
+
+
+def test_cloud_run_rejects_a_token_signed_under_the_path_token(
+    no_env_secret: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from auth import verify_access_token
+
+    monkeypatch.setenv("K_SERVICE", "loci")
+    monkeypatch.setenv("LOCI_PATH_TOKEN", ROOT_URL_TOKEN)
+    monkeypatch.setenv("LOCI_AUTH_SECRET", CLOUD_RUN_SECRET)
+    assert verify_access_token(_forge_access_token(ROOT_URL_TOKEN, "sp_a")) is None
+    assert verify_access_token(_forge_access_token(CLOUD_RUN_SECRET, "sp_a")) is not None
+
+
+def test_deploy_gcp_maps_the_signing_secret() -> None:
+    justfile = (ROOT / "justfile").read_text()
+    recipe = justfile.split("\ndeploy-gcp:", 1)[1].split("\n\n", 1)[0]
+    assert "LOCI_AUTH_SECRET=loci-auth-secret:latest" in recipe
+
+
+# Every env var the server needs from Secret Manager on Cloud Run, LOCI_AUTH_SECRET
+# included (auth.py refuses to start without it). `--set-secrets` replaces the
+# service's whole secret set, so each Cloud Run deploy must list all of them.
+CLOUD_RUN_SECRETS = {
+    "LOCI_DATABASE_URL": "loci-db-url:latest",
+    "LOCI_PATH_TOKEN": "loci-path-token:latest",
+    "LOCI_AUTH_SECRET": "loci-auth-secret:latest",
+}
+
+
+def _cloud_run_deploys() -> list[tuple[str, str]]:
+    """(file, logical command) for every `gcloud run deploy` in the justfile and scripts."""
+    deploys = []
+    for path in [ROOT / "justfile", *sorted((ROOT / "scripts").glob("*.sh"))]:
+        logical = path.read_text().replace("\\\n", " ")
+        for line in logical.splitlines():
+            if "gcloud run deploy" in line:
+                deploys.append((path.name, line))
+    return deploys
+
+
+def _set_secrets(command: str) -> dict[str, str]:
+    found = re.findall(r"--set-secrets[= ]\"?([^\"\s]+)", command)
+    assert len(found) == 1, f"expected one --set-secrets, found {len(found)}"
+    return dict(pair.split("=", 1) for pair in found[0].split(","))
+
+
+def test_every_cloud_run_deploy_maps_every_required_secret() -> None:
+    deploys = _cloud_run_deploys()
+    files = {name for name, _ in deploys}
+    assert {"justfile", "bootstrap_gcp.sh"} <= files, files
+    for name, command in deploys:
+        mapped = _set_secrets(command)
+        for env, secret in CLOUD_RUN_SECRETS.items():
+            assert mapped.get(env) == secret, f"{name}: {env} not mapped to {secret}"
+
+
+def test_bootstrap_gcp_creates_the_signing_secret_when_missing() -> None:
+    script = (ROOT / "scripts" / "bootstrap_gcp.sh").read_text()
+    assert "gcloud secrets describe loci-auth-secret" in script
+    assert "gcloud secrets create loci-auth-secret --data-file=-" in script
+    # Generated from 48+ random bytes, and created on IMAGE_ONLY redeploys too:
+    # without it the new revision refuses to start.
+    assert "secrets.token_urlsafe(48)" in script
+    image_only = script.split('if [[ "${IMAGE_ONLY:-}" == "1" ]]; then', 1)[1].split("fi", 1)[0]
+    assert "ensure_auth_secret" in image_only
+    step_one = script.split("# ---- 1/4", 1)[1].split("build_and_push\n", 1)[0]
+    assert "ensure_auth_secret" in step_one
 
 
 # ---------------------------------------------------------------- tokens at rest
