@@ -14,7 +14,6 @@ import json
 import logging
 import os
 import re
-import secrets
 from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, Any, Literal, TypeVar, cast
@@ -42,8 +41,10 @@ from auth import (
     exchange_authorization_code,
     mint_access_token,
     mint_authorization_code,
+    mint_client_id,
     oauth_protected_resource_metadata,
     oauth_server_metadata,
+    registered_client,
     valid_s256_challenge,
     verify_access_token,
 )
@@ -1176,6 +1177,34 @@ def _safe_redirect_uri(uri: str) -> bool:
     return parts.scheme == "http" and host in _LOOPBACK_HOSTS
 
 
+# Transition path: connectors registered before client_ids were signed hold a bare
+# loci_client_<16 hex> and are honoured only for these callbacks (or http loopback).
+# Delete this constant and _LEGACY_CLIENT_ID_RE once those connectors re-register.
+LEGACY_DCR_REDIRECT_HOSTS = {"claude.ai", "chatgpt.com", "chat.openai.com"}
+_LEGACY_CLIENT_ID_RE = re.compile(r"loci_client_[0-9a-f]{16}")
+
+
+def _legacy_redirect_allowed(uri: str) -> bool:
+    try:
+        parts = urlsplit(uri)
+    except ValueError:
+        return False
+    host = parts.hostname or ""
+    if parts.scheme == "https":
+        return host in LEGACY_DCR_REDIRECT_HOSTS
+    return parts.scheme == "http" and host in _LOOPBACK_HOSTS
+
+
+def _client_redirect_allowed(client_id: str, redirect_uri: str) -> bool:
+    """redirect_uri is, by exact string match, one the client_id registered."""
+    client = registered_client(client_id)
+    if client is not None:
+        return redirect_uri in client.redirect_uris
+    return bool(_LEGACY_CLIENT_ID_RE.fullmatch(client_id)) and _legacy_redirect_allowed(
+        redirect_uri
+    )
+
+
 def _state_for_space(space_id: str) -> dict[str, Any]:
     db.init_db()
     space = db.get_space_by_id(space_id)
@@ -1258,18 +1287,51 @@ async def oauth_resource_route(request: Request[State]) -> Response:
     return JSONResponse(oauth_protected_resource_metadata(_base_url(request)))
 
 
+_MAX_REDIRECT_URIS = 5
+_MAX_REDIRECT_URI_LEN = 512
+_MAX_CLIENT_NAME_LEN = 100
+
+
+def _registration_error(error: str, description: str) -> JSONResponse:
+    """An RFC 7591 client registration error."""
+    return JSONResponse({"error": error, "error_description": description}, status_code=400)
+
+
+def _valid_redirect_uris(value: object) -> list[str] | None:
+    """1 to 5 short https (or http loopback) URIs, else None."""
+    if not isinstance(value, list) or not 1 <= len(value) <= _MAX_REDIRECT_URIS:
+        return None
+    for uri in value:
+        if not isinstance(uri, str) or len(uri) > _MAX_REDIRECT_URI_LEN:
+            return None
+        if not _safe_redirect_uri(uri):
+            return None
+    return list(value)
+
+
 @mcp.custom_route("/oauth/register", methods=["POST"])
 async def oauth_register_route(request: Request[State]) -> Response:
-    try:
-        body = await request.json()
-    except Exception:  # noqa: BLE001
-        body = {}
-    client_id = f"loci_client_{secrets.token_hex(8)}"
+    body = await _json_object(request)
+    if body is None:
+        return _registration_error("invalid_client_metadata", "Body must be a JSON object.")
+    redirect_uris = _valid_redirect_uris(body.get("redirect_uris"))
+    if redirect_uris is None:
+        return _registration_error(
+            "invalid_redirect_uri",
+            f"redirect_uris must list 1 to {_MAX_REDIRECT_URIS} https (or http loopback) "
+            f"URIs of at most {_MAX_REDIRECT_URI_LEN} characters.",
+        )
+    client_name = body.get("client_name")
+    if client_name is None:
+        client_name = "MCP Connector"
+    if not isinstance(client_name, str):
+        return _registration_error("invalid_client_metadata", "client_name must be a string.")
+    client_name = client_name[:_MAX_CLIENT_NAME_LEN]
     return JSONResponse(
         {
-            "client_id": client_id,
-            "client_name": body.get("client_name", "MCP Connector"),
-            "redirect_uris": body.get("redirect_uris", []),
+            "client_id": mint_client_id(redirect_uris, client_name),
+            "client_name": client_name,
+            "redirect_uris": redirect_uris,
             "grant_types": ["authorization_code", "client_credentials"],
             "response_types": ["code"],
             "token_endpoint_auth_method": "none",
@@ -1282,6 +1344,29 @@ def _pkce_required_response() -> Response:
     return HTMLResponse(
         "Invalid code_challenge: S256 PKCE is required.", status_code=400
     )
+
+
+def _authorize_precondition_error(
+    client_id: str, redirect_uri: str, code_challenge: str, code_challenge_method: str
+) -> Response | None:
+    """GET and POST share these checks once redirect_uri is known to be safe."""
+    if not _client_redirect_allowed(client_id, redirect_uri):
+        return HTMLResponse(
+            "Invalid redirect_uri: it is not registered for this client_id.",
+            status_code=400,
+        )
+    if not valid_s256_challenge(code_challenge, code_challenge_method):
+        return _pkce_required_response()
+    return None
+
+
+def _consent_destination(client_id: str, redirect_uri: str) -> str:
+    """The registered client name (self-asserted) beside the host the code goes to."""
+    host = f"<strong>{html.escape(urlsplit(redirect_uri).hostname or '')}</strong>"
+    client = registered_client(client_id)
+    if client is None or not client.name:
+        return host
+    return f"<strong>{html.escape(client.name)}</strong> at {host}"
 
 
 @mcp.custom_route("/oauth/authorize", methods=["GET", "POST"])
@@ -1301,11 +1386,16 @@ async def oauth_authorize_route(request: Request[State]) -> Response:
                 "to start it.",
                 status_code=400,
             )
-        if not valid_s256_challenge(
-            params.get("code_challenge", ""), params.get("code_challenge_method", "")
-        ):
-            return _pkce_required_response()
-        destination = html.escape(urlsplit(redirect_uri).hostname or "")
+        client_id = params.get("client_id", "")
+        error = _authorize_precondition_error(
+            client_id,
+            redirect_uri,
+            params.get("code_challenge", ""),
+            params.get("code_challenge_method", ""),
+        )
+        if error is not None:
+            return error
+        destination = _consent_destination(client_id, redirect_uri)
         hidden_inputs = "".join(
             f'<input type="hidden" name="{html.escape(k)}" value="{html.escape(v)}">'
             for k, v in params.items()
@@ -1318,7 +1408,7 @@ async def oauth_authorize_route(request: Request[State]) -> Response:
         <body><div class="card"><h2>Connect Assistant to LINC Loci</h2>
         <p>Paste the access token of the Space this connector may use. It is the part after
         <code>/loci-</code> in your Space console URL.</p>
-        <p>Access will be granted to: <strong>{destination}</strong></p>
+        <p>Access will be granted to: {destination}</p>
         <form method="post" action="/oauth/authorize">{hidden_inputs}
         <label>Space access token</label><input type="password" name="space_token" autocomplete="off" required>
         <label>Operator / Technician Email</label><input type="email" name="subject" value="operator@lincinnovations.com" required>
@@ -1335,8 +1425,11 @@ async def oauth_authorize_route(request: Request[State]) -> Response:
 
     if not _safe_redirect_uri(redirect_uri):
         return HTMLResponse("Invalid redirect_uri.", status_code=400)
-    if not valid_s256_challenge(code_challenge, code_challenge_method):
-        return _pkce_required_response()
+    error = _authorize_precondition_error(
+        client_id, redirect_uri, code_challenge, code_challenge_method
+    )
+    if error is not None:
+        return error
     space = _resolve_space_from_token_param(str(form.get("space_token") or ""))
     if space is None:
         return HTMLResponse(
@@ -1439,7 +1532,7 @@ async def _json_object(request: Request[State]) -> dict[str, Any] | None:
     """The request body as a JSON object, or None if it is missing, malformed or not an object."""
     try:
         body = await request.json()
-    except ValueError:
+    except (ValueError, RecursionError):  # malformed, non-UTF-8 or absurdly nested
         return None
     return body if isinstance(body, dict) else None
 

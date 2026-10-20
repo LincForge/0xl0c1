@@ -240,9 +240,10 @@ def exchange_authorization_code(
             return None
         if int(data.get("exp", 0)) < int(time.time()):
             return None
-        if client_id and data.get("cid") and str(data["cid"]) != client_id:
+        # Both are required and must be exactly what the code was minted for.
+        if not client_id or data.get("cid") != client_id:
             return None
-        if redirect_uri and data.get("uri") and str(data["uri"]) != redirect_uri:
+        if not redirect_uri or data.get("uri") != redirect_uri:
             return None
         if not _pkce_verifier_matches(data, code_verifier):
             return None
@@ -261,6 +262,68 @@ def exchange_authorization_code(
         }
     except Exception:  # noqa: BLE001
         return None
+
+
+_CLIENT_ID_PREFIX = "loci_client_"
+
+
+def _dcr_key() -> bytes:
+    """Its own domain prefix: a client_id never verifies as a code or token, nor they as it."""
+    return hashlib.sha256(f"loci-dcr:{_signing_secret()}".encode("utf-8")).digest()
+
+
+@dataclass(frozen=True)
+class RegisteredClient:
+    redirect_uris: list[str]
+    name: str
+
+
+def mint_client_id(redirect_uris: list[str], client_name: str = "") -> str:
+    """A stateless client_id that carries its own signed registration (no DB row)."""
+    payload = {
+        "typ": "ci",
+        "ru": list(redirect_uris),
+        "name": client_name,
+        "iat": int(time.time()),
+        "jti": secrets.token_hex(6),  # two identical registrations still get distinct ids
+    }
+    raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    sig = hmac.new(_dcr_key(), raw, hashlib.sha256).digest()
+    return f"{_CLIENT_ID_PREFIX}{_b64u_encode(raw)}.{_b64u_encode(sig)}"
+
+
+def _signed_client_payload(client_id: str) -> Any:
+    """The decoded payload of a correctly signed client_id, else None."""
+    if not client_id.startswith(_CLIENT_ID_PREFIX) or "." not in client_id:
+        return None
+    body_part, sig_part = client_id[len(_CLIENT_ID_PREFIX) :].split(".", 1)
+    try:
+        raw = _b64u_decode(body_part)
+        sig = _b64u_decode(sig_part)
+        expected = hmac.new(_dcr_key(), raw, hashlib.sha256).digest()
+        if not hmac.compare_digest(sig, expected):
+            return None
+        return json.loads(raw.decode("utf-8"))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def registered_client(client_id: str) -> RegisteredClient | None:
+    """The registration signed into client_id, or None if forged, mistyped or malformed."""
+    data = _signed_client_payload(client_id)
+    if not isinstance(data, dict) or data.get("typ") != "ci":
+        return None
+    uris = data.get("ru")
+    if not isinstance(uris, list) or not all(isinstance(u, str) for u in uris):
+        return None
+    name = data.get("name")
+    return RegisteredClient(redirect_uris=uris, name=name if isinstance(name, str) else "")
+
+
+def verify_client_id(client_id: str) -> list[str] | None:
+    """The redirect_uris registered for client_id, or None if it does not verify."""
+    client = registered_client(client_id)
+    return client.redirect_uris if client is not None else None
 
 
 def oauth_server_metadata(base_url: str) -> dict[str, Any]:

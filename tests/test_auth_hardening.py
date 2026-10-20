@@ -6,6 +6,7 @@ Every test here fails on the pre-hardening code and passes after it.
 from __future__ import annotations
 
 import base64
+import functools
 import hashlib
 import hmac
 import json
@@ -329,9 +330,18 @@ def test_contract_client_credentials_requires_the_space_token(live_server: str) 
     assert ok.json()["space_id"] == mine["space_id"]
 
 
+@functools.cache
+def _client_id(server: str) -> str:
+    """A client registered for CALLBACK, so authorize refuses only for the reason under test."""
+    resp = httpx.post(f"{server}/oauth/register", json={"redirect_uris": [CALLBACK]})
+    assert resp.status_code == 201, resp.text
+    client_id: str = resp.json()["client_id"]
+    return client_id
+
+
 def _authorize(server: str, **extra: str) -> httpx.Response:
     data = {
-        "client_id": "loci_client_test",
+        "client_id": _client_id(server),
         "redirect_uri": CALLBACK,
         "response_type": "code",
         "state": "st",
@@ -348,7 +358,7 @@ def test_contract_authorize_page_does_not_list_tenants(live_server: str) -> None
     page = httpx.get(
         f"{live_server}/oauth/authorize",
         params={
-            "client_id": "c",
+            "client_id": _client_id(live_server),
             "redirect_uri": CALLBACK,
             "state": "s",
             "code_challenge": CHALLENGE,
@@ -380,7 +390,7 @@ def test_contract_authorize_requires_the_space_token(live_server: str) -> None:
         data={
             "grant_type": "authorization_code",
             "code": code,
-            "client_id": "loci_client_test",
+            "client_id": _client_id(live_server),
             "redirect_uri": CALLBACK,
             "code_verifier": VERIFIER,
         },
