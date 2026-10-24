@@ -415,3 +415,126 @@ def test_docs_reflect_live_gcp_stack_and_domain() -> None:
     roadmap = (ROOT / "docs" / "ROADMAP.md").read_text()
     assert "loci.lincinnovations.com" in roadmap
     assert "The three Loci tools still return `not_implemented`" not in roadmap
+
+
+def test_north_star_cross_actor_handoff_telemetry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from starlette.applications import Starlette
+    from starlette.routing import Route
+    from starlette.testclient import TestClient
+
+    monkeypatch.setenv("LOCI_DB", str(tmp_path / "telemetry.db"))
+    monkeypatch.delenv("LOCI_DATABASE_URL", raising=False)
+    monkeypatch.delenv("LOCI_DB_HOST", raising=False)
+    monkeypatch.delenv("AMBIGUOUS_API_KEY", raising=False)
+    monkeypatch.delenv("LOCI_AMBIGUOUS_SHEET_ID", raising=False)
+
+    import db
+    import server
+
+    db.init_db()
+    app = Starlette(
+        routes=[
+            Route("/api/spaces", server.spaces_api_route, methods=["GET", "POST"]),
+            Route(
+                "/loci-{space_token}/api/state",
+                server.space_state_route,
+                methods=["GET"],
+            ),
+        ]
+    )
+    client = TestClient(app)
+
+    sp = client.post(
+        "/api/spaces",
+        json={"name": "Field Gate Telemetry Space", "tier": "team"},
+        headers={"Authorization": f"Bearer {server.TOKEN}"},
+    ).json()
+    sid = sp["space_id"]
+    cap_tok = sp["capability_token"]
+
+    # Tech 1 observes and commits a lesson with an active cursor
+    tok1 = server._CURRENT_SUBJECT.set("tech1@pacificmech.example")
+    try:
+        obs = server.observe(
+            place_label="mechanical room",
+            canonical_class="valve",
+            material="metal_brass_or_bronze",
+            mounting="wall_mounted",
+            visible_verbatim_text="WATTS LF009M2-QT",
+            description="2-inch reduced pressure zone backflow preventer",
+            visible_tag_code="CM-7K",
+            user_label="main RPZ assembly",
+            space_id=sid,
+        )
+        assert obs["status"] == "ok"
+        obj_id = str(obs["object_id"])
+
+        com = server.commit(
+            object_id=obj_id,
+            title="Replaced first check relief module",
+            claims=[
+                {
+                    "text": "Differential pressure held at 7.4 PSID after flush",
+                    "confidence": "high",
+                }
+            ],
+            save=True,
+            intent="Stop relief port drip",
+            next_question="Verify packing gland dry after 24h thermal cycle",
+            space_id=sid,
+        )
+        assert com["status"] in {"ok", "committed"}
+    finally:
+        server._CURRENT_SUBJECT.reset(tok1)
+
+    # Same actor asking does NOT count as a cross-actor handoff, but increments ask_count
+    tok1_again = server._CURRENT_SUBJECT.set("tech1@pacificmech.example")
+    try:
+        same_ask = server.ask(visible_tag_code="CM-7K", space_id=sid)
+        assert same_ask["status"] == "ok"
+        assert same_ask["cross_actor_handoff"] is False
+    finally:
+        server._CURRENT_SUBJECT.reset(tok1_again)
+
+    spaces_before = client.get(
+        "/api/spaces",
+        headers={"Authorization": f"Bearer {server.TOKEN}"},
+    ).json()["spaces"]
+    row_before = next(s for s in spaces_before if s["id"] == sid)
+    assert row_before["tagged_object_count"] == 1
+    assert row_before["active_cursor_count"] == 1
+    assert row_before["ask_count"] == 1
+    assert row_before["cross_actor_handoff_count"] == 0
+
+    # Tech 2 arrives on the next shift and calls ask(visible_tag_code="CM-7K")
+    tok2 = server._CURRENT_SUBJECT.set("tech2@pacificmech.example")
+    try:
+        handoff_ask = server.ask(visible_tag_code="CM-7K", space_id=sid)
+        assert handoff_ask["status"] == "ok"
+        assert handoff_ask["cross_actor_handoff"] is True
+        assert (
+            handoff_ask["active_cursor"]
+            == "Verify packing gland dry after 24h thermal cycle"
+        )
+    finally:
+        server._CURRENT_SUBJECT.reset(tok2)
+
+    spaces_after = client.get(
+        "/api/spaces",
+        headers={"Authorization": f"Bearer {server.TOKEN}"},
+    ).json()["spaces"]
+    row_after = next(s for s in spaces_after if s["id"] == sid)
+    assert row_after["tagged_object_count"] == 1
+    assert row_after["active_cursor_count"] == 1
+    assert row_after["ask_count"] == 2
+    assert row_after["cross_actor_handoff_count"] == 1
+    assert row_after["handoff_count"] >= 1
+
+    state_after = client.get(f"/loci-{cap_tok}/api/state").json()
+    assert state_after["tagged_object_count"] == 1
+    assert state_after["active_cursor_count"] == 1
+    assert state_after["ask_count"] == 2
+    assert state_after["cross_actor_handoff_count"] == 1
+    assert state_after["handoff_count"] >= 1
