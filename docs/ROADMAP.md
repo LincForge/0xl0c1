@@ -22,17 +22,39 @@
 - Upgraded `/loci-<space_token>/` (`viewer.html`) with live search/filter, 1-click Copy MCP URL, cross-tech handoff counter, and amber Active Cursor callouts.
 
 ### Phase 2 — 5-Space Field Validation Gate (`ACTIVE` · Target: `2026-11-15`)
-- **Goal:** Validate real-world cross-assistant recall (`Claude` ↔ `ChatGPT` ↔ `Gemini`) across 5 active Spaces (`LINC Hardware Bench`, `Faust Household & Workshop`, `SniperPulse NRL22 Match Kit`, `Commercial Mechanical & Plumbing Handoff`, and 1 external field-service contractor pilot).
-- **Kill Criterion:** `<3` active Spaces or `<20` committed lessons by `2026-11-15` triggers scope freeze before building self-serve billing.
 
-### Phase 3 — v0.2 Self-Serve Space Onboarding & Physical Tag Packs (`NEXT`)
-- Self-serve Space creation flow (magic-link email verification or Stripe Checkout webhook minting a capability token on `/pricing` completion).
-- Fulfill 50x weatherproof UV/oil-resistant `0xL0C1` visual Base32 sticker packs (`$29`) with pre-assigned Space prefixes.
-- Claim superseding UI/tool helpers (`status: superseded` vs `disputed` when a technician updates an outdated torque spec or part number).
+- **North-Star Metric (Council Ruling `e26bc71aff22`):** **Cross-Actor Handoff Completions** — an `ask` recall or follow-up `commit` on a physical object where `caller_subject != latest_lesson.author_subject` across different devices or assistants (`Claude` ↔ `ChatGPT` ↔ `Gemini`).
+- **Live Cloud SQL Baseline (`2026-10-24`):**
+  | Space ID | Slug | Tier | Seeded Objects | Seeded Lessons | Target Field Role |
+  |---|---|---|---:|---:|---|
+  | `sp_deeea3b745a3` | `linc-hardware-bench` | `team` | 2 | 2 | Internal #1: LINC device bench (phones, watches, power supplies, cables) |
+  | `sp_a2c8adde28f9` | `faust-household-workshop` | `pro` | 2 | 2 | Internal #2: Household utility panels, hydronic manifold, shutoff valves |
+  | `sp_6d7d6d4c1baf` | `sniperpulse-nrl22-kit` | `pro` | 2 | 2 | Internal/Field #3: NRL22 match kit (CZ 457 turret dope, Garmin Xero C1 Pro, Kestrel) |
+  | `sp_84474893669e` | `commercial-mechanical-handoff` | `team` | 2 | 3 | External Pilot #1: Commercial mechanical / plumbing shift handoff |
+  | `sp_5db26b928480` | `ai-tinkerers-seattle-pilot` | `free` | 2 | 2 | External Pilot #2: AI Tinkerers Seattle operator & maker shop pilot |
+
+- **Phase 2 Execution Plan (Next Steps in Order):**
+  1. **Step 2.1 — Space Token Rotation & Provisioning CLI (`POST /api/spaces/{space_id}/rotate-token`):**
+     - *Why:* PR #2 (`3658c64`) redacted plaintext capability tokens in `space.capability_token` (`sha256:<digest>`), and `seed_showcase_spaces()` discarded the initial tokens at boot. Adding the operator/owner `POST /api/spaces/{space_id}/rotate-token` endpoint (from Startup Spec §5.2) allows minting fresh capability tokens (`mcp_url`, `console_url`, `labels_svg_url`) for the 5 seeded pilot Spaces so they can be opened in browsers, printed, and connected via OAuth 2.1.
+  2. **Step 2.2 — North-Star Handoff Telemetry (`ask` resume counter + `/api/spaces` metrics):**
+     - *Why:* `ask()` is currently a read-only `SELECT` that does not record when a second technician/assistant resumes an object's active cursor. Recording `last_seen_at` and incrementing cross-actor handoff telemetry (when `caller_subject != latest_lesson.author_subject`) plus exposing `handoff_count` and `active_cursor_count` on `GET /api/spaces` makes the Nov 15 validation gate directly measurable in one API call.
+  3. **Step 2.3 — Physical Tag Sheet Printing & 10-Object Bench/House Deployment:**
+     - Mint tokens for `linc-hardware-bench`, `faust-household-workshop`, and `sniperpulse-nrl22-kit`, print their `/loci-<token>/labels.svg` sheets on weatherproof sticker stock, and affix `XX-XC` tags to $\ge 10$ physical assets (bench phones/power supplies, main water shutoff + hydronic mixing valves, rifle optic + chronograph).
+  4. **Step 2.4 — Cross-Assistant Field Handoff Drills & External Operator Onboarding:**
+     - Execute live `observe` + `commit(save=True)` on Assistant A (e.g. Claude iOS) and verify zero-shot `ask` recall + active cursor resolution on Assistant B (e.g. ChatGPT Voice / Gemini Live) under a second `subject`.
+     - Hand off 2 external pilot Space capability URLs + printed 50-tag sheets to Seattle operator contacts before `2026-11-01`.
+- **Gate & Kill Criterion (`2026-11-15`):**
+  - **PASS:** $\ge 3$ active Spaces, $\ge 10$ physically tagged objects, $\ge 20$ committed lessons, and $\ge 2$ unprompted cross-actor handoffs completed across separate sessions/assistants.
+  - **KILL / FREEZE:** If $< 3$ Spaces are active or $0$ unprompted cross-actor handoffs occur by `2026-11-15`, freeze Phase 3/4 B2B billing & seat work and retain Loci strictly as LINC's internal bench/asset memory MCP server.
+
+### Phase 3 — v0.2 Self-Serve Space Onboarding & Physical Tag Packs (`NEXT` · Post-Gate)
+- **Self-Serve Space Provisioning:** Wire `/pricing` `<dialog>` checkout to Stripe Checkout (`$12/mo` Pro, `$49/mo` Team, `$29` 50-pack tags) and webhook-driven `db.create_space()`, returning the new capability URL once on completion.
+- **Physical Tag Pack Fulfillment:** Die-cut weatherproof UV/oil-resistant matte-black/signal-white `0xL0C1` visual Base32 sticker packs (`50x` per sheet) with pre-assigned Space prefixes.
+- **Claim Lifecycle Helpers:** Add `supersede_claim` / `status: superseded | disputed` workflow in `commit()` so updated torque specs, firmware versions, or part numbers cleanly replace stale claims without losing audit history.
 
 ### Phase 4 — v0.3 Place-Level Lessons & B2B Field-Service Handoff (`LATER`)
-- Optional `place_id` lessons (site/room lockout procedures not tied to a single object).
-- Team seat management (`membership` table roles: `owner`, `writer`, `viewer`) and shift-handoff digest notifications.
+- **Place-Level Lessons (`lesson.place_id`):** Support room/zone lockout-tagout (LOTO) and access procedures attached directly to a `place` without requiring a dummy object.
+- **Team Seat & Role Enforcement:** Enforce `membership.role` (`owner`, `writer`, `viewer`) on OAuth 2.1 tokens and capability paths, plus shift-handoff digest webhooks when an open `next_question` cursor is resolved.
 
 ---
 
