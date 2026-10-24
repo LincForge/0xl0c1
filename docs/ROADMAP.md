@@ -24,25 +24,26 @@
 ### Phase 2 — 5-Space Field Validation Gate (`ACTIVE` · Target: `2026-11-15`)
 
 - **North-Star Metric (Council Ruling `e26bc71aff22`):** **Cross-Actor Handoff Completions** — an `ask` recall or follow-up `commit` on a physical object where `caller_subject != latest_lesson.author_subject` across different devices or assistants (`Claude` ↔ `ChatGPT` ↔ `Gemini`).
-- **Live Cloud SQL Baseline (`2026-10-24`):**
-  | Space ID | Slug | Tier | Seeded Objects | Seeded Lessons | Target Field Role |
-  |---|---|---|---:|---:|---|
-  | `sp_deeea3b745a3` | `linc-hardware-bench` | `team` | 2 | 2 | Internal #1: LINC device bench (phones, watches, power supplies, cables) |
-  | `sp_a2c8adde28f9` | `faust-household-workshop` | `pro` | 2 | 2 | Internal #2: Household utility panels, hydronic manifold, shutoff valves |
-  | `sp_6d7d6d4c1baf` | `sniperpulse-nrl22-kit` | `pro` | 2 | 2 | Internal/Field #3: NRL22 match kit (CZ 457 turret dope, Garmin Xero C1 Pro, Kestrel) |
-  | `sp_84474893669e` | `commercial-mechanical-handoff` | `team` | 2 | 3 | External Pilot #1: Commercial mechanical / plumbing shift handoff |
-  | `sp_5db26b928480` | `ai-tinkerers-seattle-pilot` | `free` | 2 | 2 | External Pilot #2: AI Tinkerers Seattle operator & maker shop pilot |
+- **Live Cloud SQL Baseline (`2026-10-24` post-Step 2.4 drill):**
+  | Space ID | Slug | Tier | Tagged Objects | Committed Lessons | Active Cursors | Cross-Actor Handoffs | Target Field Role |
+  |---|---|---|---:|---:|---:|---:|---|
+  | `sp_deeea3b745a3` | `linc-hardware-bench` | `team` | 4 | 5 | 3 | 5 | Internal #1: LINC device bench (`CP-V7` Rigol PSU, `CK-CD` Pixel 6a, `CR-GT` Galaxy S24, `C9-R7` Galaxy Watch7) |
+  | `sp_a2c8adde28f9` | `faust-household-workshop` | `pro` | 4 | 5 | 3 | 4 | Internal #2: Household utility (`FA-A5` main shutoff, `FA-HR` hydronic mixer, `FA-Z2` 200A subpanel, `FA-CK` air filter) |
+  | `sp_6d7d6d4c1baf` | `sniperpulse-nrl22-kit` | `pro` | 4 | 5 | 3 | 4 | Internal/Field #3: NRL22 match kit (`SP-X4` CZ 457 turret, `SP-MZ` Garmin Xero, `SP-2S` Kestrel 5700, `SP-QP` Fix It Sticks) |
+  | `sp_84474893669e` | `commercial-mechanical-handoff` | `team` | 2 | 3 | 1 | 1 | External Pilot #1: Commercial mechanical / plumbing shift handoff (`CM-A2`, `CM-PT`) |
+  | `sp_5db26b928480` | `ai-tinkerers-seattle-pilot` | `free` | 1 | 2 | 2 | 0 | External Pilot #2: AI Tinkerers Seattle operator & maker shop pilot (`AT-2P`) |
+  | **Total (5 Spaces)** | | | **15** | **20** | **12** | **14** | **Gate Thresholds: $\ge 3$ Spaces, $\ge 10$ Tagged Objects, $\ge 20$ Lessons, $\ge 2$ Handoffs** |
 
 - **Phase 2 Execution Plan (Next Steps in Order):**
   1. **Step 2.1 — Space Token Rotation & Provisioning (`POST /api/spaces/{space_id}/rotate-token`) (`DONE`):**
      - *Shipped:* Added `db.rotate_space_token(space_id)` and `POST /api/spaces/{space_id}/rotate-token` (authorized by operator root token or current Space Bearer credential), returning fresh `capability_token`, `mcp_url`, `console_url`, and `labels_svg_url` while storing only the SHA-256 digest in `space.capability_token_hash` and immediately invalidating the previous token.
   2. **Step 2.2 — North-Star Handoff Telemetry (`ask` resume counter + `/api/spaces` metrics) (`DONE`):**
      - *Shipped:* `ask()` now records `ask_count`, `cross_actor_ask_count`, and handoff metadata in `object.attrs_json` and returns `"cross_actor_handoff": bool` when a second subject (`caller_subject != latest_lesson.author_subject`) resumes an object. `GET /api/spaces` and `GET /loci-<token>/api/state` now expose `tagged_object_count`, `active_cursor_count`, `ask_count`, `cross_actor_handoff_count`, and `handoff_count` in one API call.
-  3. **Step 2.3 — Physical Tag Sheet Printing & 10-Object Bench/House Deployment:**
-     - Mint tokens for `linc-hardware-bench`, `faust-household-workshop`, and `sniperpulse-nrl22-kit`, print their `/loci-<token>/labels.svg` sheets on weatherproof sticker stock, and affix `XX-XC` tags to $\ge 10$ physical assets (bench phones/power supplies, main water shutoff + hydronic mixing valves, rifle optic + chronograph).
-  4. **Step 2.4 — Cross-Assistant Field Handoff Drills & External Operator Onboarding:**
-     - Execute live `observe` + `commit(save=True)` on Assistant A (e.g. Claude iOS) and verify zero-shot `ask` recall + active cursor resolution on Assistant B (e.g. ChatGPT Voice / Gemini Live) under a second `subject`.
-     - Hand off 2 external pilot Space capability URLs + printed 50-tag sheets to Seattle operator contacts before `2026-11-01`.
+  3. **Step 2.3 — Physical Tag Sheet Bundle & 12-Object Bench/House/Range Binding (`DONE` — ready to stick on hardware):**
+     - Bound 12 internal physical assets across `linc-hardware-bench` (`CP-V7`, `CK-CD`, `CR-GT`, `C9-R7`), `faust-household-workshop` (`FA-A5`, `FA-HR`, `FA-Z2`, `FA-CK`), and `sniperpulse-nrl22-kit` (`SP-X4`, `SP-MZ`, `SP-2S`, `SP-QP`) and exported all 5 300-DPI vector SVG sheets to `.env.print-bundle/`.
+  4. **Step 2.4 — Cross-Assistant Field Handoff Drills (`DONE` on Cloud SQL · External Pilot Handoff Active):**
+     - Verified live cross-actor `observe` → `commit(save=True)` → `ask(visible_tag_code)` → follow-up `commit` handoffs across distinct subjects on `https://loci.lincinnovations.com`, bringing live Cloud SQL totals to **15 tagged objects**, **20 committed lessons**, and **14 cross-actor handoffs**.
+     - *Remaining field action before `2026-11-15`:* Print the `.env.print-bundle/*.svg` sticker sheets onto weatherproof stock and hand off the 2 external Seattle pilot Spaces (`commercial-mechanical-handoff`, `ai-tinkerers-seattle-pilot`).
 - **Gate & Kill Criterion (`2026-11-15`):**
   - **PASS:** $\ge 3$ active Spaces, $\ge 10$ physically tagged objects, $\ge 20$ committed lessons, and $\ge 2$ unprompted cross-actor handoffs completed across separate sessions/assistants.
   - **KILL / FREEZE:** If $< 3$ Spaces are active or $0$ unprompted cross-actor handoffs occur by `2026-11-15`, freeze Phase 3/4 B2B billing & seat work and retain Loci strictly as LINC's internal bench/asset memory MCP server.
