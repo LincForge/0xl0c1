@@ -67,7 +67,9 @@ def _cloud_run_signing_secret() -> str:
         )
     path_token = _env("LOCI_PATH_TOKEN") or ""
     if hmac.compare_digest(secret.encode("utf-8"), path_token.encode("utf-8")):
-        raise RuntimeError(f"{_CLOUD_RUN_SECRET_HINT}: it must differ from LOCI_PATH_TOKEN.")
+        raise RuntimeError(
+            f"{_CLOUD_RUN_SECRET_HINT}: it must differ from LOCI_PATH_TOKEN."
+        )
     return secret
 
 
@@ -89,7 +91,9 @@ def _local_file_secret() -> str:
             tmp.unlink()
     secret = path.read_text().strip()
     if len(secret) < _MIN_SECRET_LEN:
-        raise RuntimeError(f"{path} holds a signing secret shorter than {_MIN_SECRET_LEN} chars")
+        raise RuntimeError(
+            f"{path} holds a signing secret shorter than {_MIN_SECRET_LEN} chars"
+        )
     return secret
 
 
@@ -184,7 +188,9 @@ def valid_s256_challenge(code_challenge: str, code_challenge_method: str) -> boo
 def _pkce_verifier_matches(data: dict[str, Any], code_verifier: str) -> bool:
     """A code exchanges only with an S256 challenge and the verifier that hashes to it."""
     cc = data.get("cc")
-    if not isinstance(cc, str) or not valid_s256_challenge(cc, str(data.get("ccm", ""))):
+    if not isinstance(cc, str) or not valid_s256_challenge(
+        cc, str(data.get("ccm", ""))
+    ):
         return False
     if not _PKCE_VERIFIER_RE.fullmatch(code_verifier):
         return False
@@ -285,7 +291,9 @@ def mint_client_id(redirect_uris: list[str], client_name: str = "") -> str:
         "ru": list(redirect_uris),
         "name": client_name,
         "iat": int(time.time()),
-        "jti": secrets.token_hex(6),  # two identical registrations still get distinct ids
+        "jti": secrets.token_hex(
+            6
+        ),  # two identical registrations still get distinct ids
     }
     raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
     sig = hmac.new(_dcr_key(), raw, hashlib.sha256).digest()
@@ -317,7 +325,9 @@ def registered_client(client_id: str) -> RegisteredClient | None:
     if not isinstance(uris, list) or not all(isinstance(u, str) for u in uris):
         return None
     name = data.get("name")
-    return RegisteredClient(redirect_uris=uris, name=name if isinstance(name, str) else "")
+    return RegisteredClient(
+        redirect_uris=uris, name=name if isinstance(name, str) else ""
+    )
 
 
 def verify_client_id(client_id: str) -> list[str] | None:

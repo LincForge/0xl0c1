@@ -64,7 +64,9 @@ def no_env_secret(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     return secret_file
 
 
-def test_contract_legacy_constant_secret_cannot_forge_tokens(no_env_secret: Path) -> None:
+def test_contract_legacy_constant_secret_cannot_forge_tokens(
+    no_env_secret: Path,
+) -> None:
     from auth import verify_access_token
 
     assert verify_access_token(_forge_access_token(LEGACY_CONSTANT, "default")) is None
@@ -79,7 +81,9 @@ def test_contract_whitespace_secret_env_is_treated_as_unset(
     assert verify_access_token(_forge_access_token("   ", "default")) is None
 
 
-def test_contract_fallback_secret_is_random_private_and_stable(no_env_secret: Path) -> None:
+def test_contract_fallback_secret_is_random_private_and_stable(
+    no_env_secret: Path,
+) -> None:
     from auth import mint_access_token, verify_access_token
 
     token = mint_access_token(space_id="sp_a")
@@ -170,7 +174,9 @@ def test_cloud_run_rejects_a_token_signed_under_the_path_token(
     monkeypatch.setenv("LOCI_PATH_TOKEN", ROOT_URL_TOKEN)
     monkeypatch.setenv("LOCI_AUTH_SECRET", CLOUD_RUN_SECRET)
     assert verify_access_token(_forge_access_token(ROOT_URL_TOKEN, "sp_a")) is None
-    assert verify_access_token(_forge_access_token(CLOUD_RUN_SECRET, "sp_a")) is not None
+    assert (
+        verify_access_token(_forge_access_token(CLOUD_RUN_SECRET, "sp_a")) is not None
+    )
 
 
 def test_deploy_gcp_maps_the_signing_secret() -> None:
@@ -223,7 +229,9 @@ def test_bootstrap_gcp_creates_the_signing_secret_when_missing() -> None:
     # Generated from 48+ random bytes, and created on IMAGE_ONLY redeploys too:
     # without it the new revision refuses to start.
     assert "secrets.token_urlsafe(48)" in script
-    image_only = script.split('if [[ "${IMAGE_ONLY:-}" == "1" ]]; then', 1)[1].split("fi", 1)[0]
+    image_only = script.split('if [[ "${IMAGE_ONLY:-}" == "1" ]]; then', 1)[1].split(
+        "fi", 1
+    )[0]
     assert "ensure_auth_secret" in image_only
     step_one = script.split("# ---- 1/4", 1)[1].split("build_and_push\n", 1)[0]
     assert "ensure_auth_secret" in step_one
@@ -290,7 +298,9 @@ def test_contract_init_db_redacts_legacy_plaintext_rows(sqlite_db: Path) -> None
 
 def _new_space(server: str, name: str) -> dict[str, Any]:
     resp = httpx.post(
-        f"{server}/api/spaces", json={"name": name}, headers={"Authorization": "Bearer root-token"}
+        f"{server}/api/spaces",
+        json={"name": name},
+        headers={"Authorization": "Bearer root-token"},
     )
     assert resp.status_code == 201
     body: dict[str, Any] = resp.json()
@@ -302,13 +312,19 @@ def test_contract_client_credentials_requires_the_space_token(live_server: str) 
     other = _new_space(live_server, "CC Other")
     url = f"{live_server}/oauth/token"
 
-    no_secret = httpx.post(url, data={"grant_type": "client_credentials", "space_id": other["space_id"]})
+    no_secret = httpx.post(
+        url, data={"grant_type": "client_credentials", "space_id": other["space_id"]}
+    )
     assert no_secret.status_code == 401
     assert "access_token" not in no_secret.text
 
     wrong = httpx.post(
         url,
-        data={"grant_type": "client_credentials", "space_id": other["space_id"], "client_secret": "nope"},
+        data={
+            "grant_type": "client_credentials",
+            "space_id": other["space_id"],
+            "client_secret": "nope",
+        },
     )
     assert wrong.status_code == 401
 
@@ -324,7 +340,11 @@ def test_contract_client_credentials_requires_the_space_token(live_server: str) 
     assert "access_token" not in mismatch.text
 
     ok = httpx.post(
-        url, data={"grant_type": "client_credentials", "client_secret": mine["capability_token"]}
+        url,
+        data={
+            "grant_type": "client_credentials",
+            "client_secret": mine["capability_token"],
+        },
     )
     assert ok.status_code == 200
     assert ok.json()["space_id"] == mine["space_id"]
@@ -401,11 +421,21 @@ def test_contract_authorize_requires_the_space_token(live_server: str) -> None:
 
 @pytest.mark.parametrize(
     "redirect_uri",
-    ["javascript:alert(1)", "http://evil.example/cb", "", "data:text/html,x", "https://"],
+    [
+        "javascript:alert(1)",
+        "http://evil.example/cb",
+        "",
+        "data:text/html,x",
+        "https://",
+    ],
 )
-def test_contract_authorize_rejects_unsafe_redirect_uri(live_server: str, redirect_uri: str) -> None:
+def test_contract_authorize_rejects_unsafe_redirect_uri(
+    live_server: str, redirect_uri: str
+) -> None:
     sp = _new_space(live_server, f"Redirect {abs(hash(redirect_uri))}")
-    resp = _authorize(live_server, space_token=sp["capability_token"], redirect_uri=redirect_uri)
+    resp = _authorize(
+        live_server, space_token=sp["capability_token"], redirect_uri=redirect_uri
+    )
     assert resp.status_code == 400
     assert "location" not in resp.headers
 
@@ -437,12 +467,16 @@ def _mcp_call(
     assert not result.get("isError"), result
     structured = result.get("structuredContent")
     body: dict[str, Any] = (
-        structured if isinstance(structured, dict) else json.loads(result["content"][0]["text"])
+        structured
+        if isinstance(structured, dict)
+        else json.loads(result["content"][0]["text"])
     )
     return body
 
 
-def test_contract_tenant_cannot_reach_another_space_via_space_id(live_server: str) -> None:
+def test_contract_tenant_cannot_reach_another_space_via_space_id(
+    live_server: str,
+) -> None:
     attacker = _new_space(live_server, "Tenant Attacker")
     victim = _new_space(live_server, "Tenant Victim")
     url = f"{live_server}/loci-{attacker['capability_token']}/mcp"
@@ -473,7 +507,9 @@ def test_contract_tenant_cannot_reach_another_space_via_space_id(live_server: st
         out = _mcp_call(url, tool, {**args, "space_id": victim["space_id"]})
         assert out.get("error") == "space_forbidden", (tool, out)
 
-    own = _mcp_call(url, "ask", {"visible_tag_code": "K9-4B", "space_id": attacker["space_id"]})
+    own = _mcp_call(
+        url, "ask", {"visible_tag_code": "K9-4B", "space_id": attacker["space_id"]}
+    )
     assert own.get("error") != "space_forbidden"
 
     listed = _mcp_call(url, "list_spaces", {})
@@ -487,10 +523,16 @@ def test_contract_bearer_tenant_cannot_reach_another_space(live_server: str) -> 
     other = _new_space(live_server, "Bearer Other")
     tok = httpx.post(
         f"{live_server}/oauth/token",
-        data={"grant_type": "client_credentials", "client_secret": mine["capability_token"]},
+        data={
+            "grant_type": "client_credentials",
+            "client_secret": mine["capability_token"],
+        },
     ).json()["access_token"]
     out = _mcp_call(
-        f"{live_server}/mcp", "ask", {"visible_tag_code": "K9-4B", "space_id": other["space_id"]}, bearer=tok
+        f"{live_server}/mcp",
+        "ask",
+        {"visible_tag_code": "K9-4B", "space_id": other["space_id"]},
+        bearer=tok,
     )
     assert out.get("error") == "space_forbidden"
 
@@ -502,7 +544,9 @@ def test_operator_root_token_still_spans_spaces(live_server: str) -> None:
 
 
 @pytest.mark.parametrize("token", ["\u00e9", "caf\u00e9-token", "\u2603"])
-def test_contract_non_ascii_tokens_are_rejected_not_crashed(live_server: str, token: str) -> None:
+def test_contract_non_ascii_tokens_are_rejected_not_crashed(
+    live_server: str, token: str
+) -> None:
     resp = httpx.post(
         f"{live_server}/oauth/token",
         data={"grant_type": "client_credentials", "client_secret": token},
@@ -527,7 +571,9 @@ def test_contract_authorization_code_is_not_an_access_token(live_server: str) ->
     sp = _new_space(live_server, "Code Not Token")
     code = _code_for(live_server, sp["capability_token"])
     relabelled = "loci_at_" + code[len("loci_ac_") :]
-    listed = httpx.get(f"{live_server}/api/spaces", headers={"Authorization": f"Bearer {relabelled}"})
+    listed = httpx.get(
+        f"{live_server}/api/spaces", headers={"Authorization": f"Bearer {relabelled}"}
+    )
     assert listed.status_code == 401
     mcp = httpx.post(
         f"{live_server}/mcp",
@@ -536,7 +582,12 @@ def test_contract_authorization_code_is_not_an_access_token(live_server: str) ->
             "Content-Type": "application/json",
             "Accept": "application/json, text/event-stream",
         },
-        json={"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "list_spaces", "arguments": {}}},
+        json={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "list_spaces", "arguments": {}},
+        },
     )
     assert mcp.status_code == 401
 
@@ -545,22 +596,37 @@ def test_contract_access_token_is_not_an_authorization_code(live_server: str) ->
     sp = _new_space(live_server, "Token Not Code")
     issued = httpx.post(
         f"{live_server}/oauth/token",
-        data={"grant_type": "client_credentials", "client_secret": sp["capability_token"]},
+        data={
+            "grant_type": "client_credentials",
+            "client_secret": sp["capability_token"],
+        },
     )
     assert issued.status_code == 200, issued.text
     relabelled = "loci_ac_" + issued.json()["access_token"][len("loci_at_") :]
     swapped = httpx.post(
         f"{live_server}/oauth/token",
-        data={"grant_type": "authorization_code", "code": relabelled, "code_verifier": "anything"},
+        data={
+            "grant_type": "authorization_code",
+            "code": relabelled,
+            "code_verifier": "anything",
+        },
     )
     assert swapped.status_code == 400
     assert "access_token" not in swapped.text
 
 
-def test_access_tokens_minted_before_the_type_claim_still_verify(no_env_secret: Path) -> None:
+def test_access_tokens_minted_before_the_type_claim_still_verify(
+    no_env_secret: Path,
+) -> None:
     import auth
 
-    payload = {"space_id": "sp_x", "sub": "u", "role": "writer", "exp": int(time.time()) + 600, "jti": "abc"}
+    payload = {
+        "space_id": "sp_x",
+        "sub": "u",
+        "role": "writer",
+        "exp": int(time.time()) + 600,
+        "jti": "abc",
+    }
     raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
     sig = hmac.new(auth._signing_key(), raw, hashlib.sha256).digest()
     claims = auth.verify_access_token(f"loci_at_{_b64u(raw)}.{_b64u(sig)}")

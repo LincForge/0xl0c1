@@ -1651,6 +1651,43 @@ async def spaces_api_route(request: Request[State]) -> Response:
     return JSONResponse(created, status_code=201)
 
 
+@mcp.custom_route("/api/spaces/{space_id}/rotate-token", methods=["POST"])
+async def rotate_space_token_route(request: Request[State]) -> Response:
+    """Rotate a Space's capability token (authorized by operator root token or the Space's current credential)."""
+    db.init_db()
+    caller = _bearer_space_id(request)
+    if caller is None:
+        return _unauthorized("Bearer space token or OAuth access token required.")
+    target_space_id = str(request.path_params.get("space_id") or "").strip()
+    if target_space_id == db.DEFAULT_SPACE_ID:
+        return JSONResponse(
+            {
+                "error": "invalid_request",
+                "error_description": "The default operator space token is managed via LOCI_PATH_TOKEN.",
+            },
+            status_code=400,
+        )
+    if caller != db.DEFAULT_SPACE_ID and caller != target_space_id:
+        return JSONResponse(
+            {
+                "error": "forbidden",
+                "error_description": "Cannot rotate another Space's token.",
+            },
+            status_code=403,
+        )
+    rotated = db.rotate_space_token(target_space_id)
+    if rotated is None:
+        return JSONResponse(
+            {"error": "space_not_found", "error_description": "Space not found."},
+            status_code=404,
+        )
+    root = _base_url(request)
+    rotated["mcp_url"] = f"{root}/loci-{rotated['capability_token']}/mcp"
+    rotated["console_url"] = f"{root}/loci-{rotated['capability_token']}/"
+    rotated["labels_svg_url"] = f"{root}/loci-{rotated['capability_token']}/labels.svg"
+    return JSONResponse(rotated, status_code=200)
+
+
 @mcp.custom_route("/api/billing/checkout", methods=["POST"])
 async def billing_checkout_route(request: Request[State]) -> Response:
     body = await _json_object(request)

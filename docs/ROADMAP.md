@@ -34,8 +34,8 @@
   | `sp_5db26b928480` | `ai-tinkerers-seattle-pilot` | `free` | 2 | 2 | External Pilot #2: AI Tinkerers Seattle operator & maker shop pilot |
 
 - **Phase 2 Execution Plan (Next Steps in Order):**
-  1. **Step 2.1 — Space Token Rotation & Provisioning CLI (`POST /api/spaces/{space_id}/rotate-token`):**
-     - *Why:* PR #2 (`3658c64`) redacted plaintext capability tokens in `space.capability_token` (`sha256:<digest>`), and `seed_showcase_spaces()` discarded the initial tokens at boot. Adding the operator/owner `POST /api/spaces/{space_id}/rotate-token` endpoint (from Startup Spec §5.2) allows minting fresh capability tokens (`mcp_url`, `console_url`, `labels_svg_url`) for the 5 seeded pilot Spaces so they can be opened in browsers, printed, and connected via OAuth 2.1.
+  1. **Step 2.1 — Space Token Rotation & Provisioning (`POST /api/spaces/{space_id}/rotate-token`) (`DONE`):**
+     - *Shipped:* Added `db.rotate_space_token(space_id)` and `POST /api/spaces/{space_id}/rotate-token` (authorized by operator root token or current Space Bearer credential), returning fresh `capability_token`, `mcp_url`, `console_url`, and `labels_svg_url` while storing only the SHA-256 digest in `space.capability_token_hash` and immediately invalidating the previous token.
   2. **Step 2.2 — North-Star Handoff Telemetry (`ask` resume counter + `/api/spaces` metrics):**
      - *Why:* `ask()` is currently a read-only `SELECT` that does not record when a second technician/assistant resumes an object's active cursor. Recording `last_seen_at` and incrementing cross-actor handoff telemetry (when `caller_subject != latest_lesson.author_subject`) plus exposing `handoff_count` and `active_cursor_count` on `GET /api/spaces` makes the Nov 15 validation gate directly measurable in one API call.
   3. **Step 2.3 — Physical Tag Sheet Printing & 10-Object Bench/House Deployment:**
