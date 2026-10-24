@@ -36,8 +36,8 @@
 - **Phase 2 Execution Plan (Next Steps in Order):**
   1. **Step 2.1 — Space Token Rotation & Provisioning (`POST /api/spaces/{space_id}/rotate-token`) (`DONE`):**
      - *Shipped:* Added `db.rotate_space_token(space_id)` and `POST /api/spaces/{space_id}/rotate-token` (authorized by operator root token or current Space Bearer credential), returning fresh `capability_token`, `mcp_url`, `console_url`, and `labels_svg_url` while storing only the SHA-256 digest in `space.capability_token_hash` and immediately invalidating the previous token.
-  2. **Step 2.2 — North-Star Handoff Telemetry (`ask` resume counter + `/api/spaces` metrics):**
-     - *Why:* `ask()` is currently a read-only `SELECT` that does not record when a second technician/assistant resumes an object's active cursor. Recording `last_seen_at` and incrementing cross-actor handoff telemetry (when `caller_subject != latest_lesson.author_subject`) plus exposing `handoff_count` and `active_cursor_count` on `GET /api/spaces` makes the Nov 15 validation gate directly measurable in one API call.
+  2. **Step 2.2 — North-Star Handoff Telemetry (`ask` resume counter + `/api/spaces` metrics) (`DONE`):**
+     - *Shipped:* `ask()` now records `ask_count`, `cross_actor_ask_count`, and handoff metadata in `object.attrs_json` and returns `"cross_actor_handoff": bool` when a second subject (`caller_subject != latest_lesson.author_subject`) resumes an object. `GET /api/spaces` and `GET /loci-<token>/api/state` now expose `tagged_object_count`, `active_cursor_count`, `ask_count`, `cross_actor_handoff_count`, and `handoff_count` in one API call.
   3. **Step 2.3 — Physical Tag Sheet Printing & 10-Object Bench/House Deployment:**
      - Mint tokens for `linc-hardware-bench`, `faust-household-workshop`, and `sniperpulse-nrl22-kit`, print their `/loci-<token>/labels.svg` sheets on weatherproof sticker stock, and affix `XX-XC` tags to $\ge 10$ physical assets (bench phones/power supplies, main water shutoff + hydronic mixing valves, rifle optic + chronograph).
   4. **Step 2.4 — Cross-Assistant Field Handoff Drills & External Operator Onboarding:**

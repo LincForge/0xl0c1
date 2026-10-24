@@ -412,6 +412,18 @@ def rotate_space_token(
     }
 
 
+def _parse_attrs_json(raw: Any) -> dict[str, Any]:
+    if isinstance(raw, dict):
+        return dict(raw)
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(str(raw))
+        return dict(parsed) if isinstance(parsed, dict) else {}
+    except (ValueError, TypeError):
+        return {}
+
+
 def list_all_spaces() -> list[dict[str, Any]]:
     with tx() as conn:
         rows = conn.execute(
@@ -427,14 +439,61 @@ def list_all_spaces() -> list[dict[str, Any]]:
                 conn.execute(
                     "SELECT set_config('loci.current_space_id', %s, true)", (sid,)
                 )
-            obj_cnt = conn.execute(
-                q("SELECT COUNT(*) AS cnt FROM object WHERE space_id = ?"), (sid,)
-            ).fetchone()
-            les_cnt = conn.execute(
-                q("SELECT COUNT(*) AS cnt FROM lesson WHERE space_id = ?"), (sid,)
-            ).fetchone()
-            d["object_count"] = int(_row_dict(obj_cnt)["cnt"]) if obj_cnt else 0
-            d["lesson_count"] = int(_row_dict(les_cnt)["cnt"]) if les_cnt else 0
+            obj_rows = conn.execute(
+                q("SELECT id, tag_code, attrs_json FROM object WHERE space_id = ?"),
+                (sid,),
+            ).fetchall()
+            les_rows = conn.execute(
+                q(
+                    "SELECT id, object_id, author_subject, next_question, is_cursor_active "
+                    "FROM lesson WHERE space_id = ?"
+                ),
+                (sid,),
+            ).fetchall()
+
+            objs = [_row_dict(o) for o in obj_rows]
+            lessons = [_row_dict(les) for les in les_rows]
+            obj_attrs = [_parse_attrs_json(o.get("attrs_json")) for o in objs]
+
+            object_count = len(objs)
+            tagged_object_count = sum(
+                1 for o in objs if str(o.get("tag_code") or "").strip()
+            )
+            lesson_count = len(lessons)
+            active_cursor_count = sum(
+                1
+                for les in lessons
+                if bool(les.get("is_cursor_active"))
+                and str(les.get("next_question") or "").strip()
+            )
+            ask_count = sum(int(a.get("ask_count") or 0) for a in obj_attrs)
+            cross_actor_ask_count = sum(
+                int(a.get("cross_actor_ask_count") or 0) for a in obj_attrs
+            )
+
+            authors_by_obj: dict[str, set[str]] = {}
+            for les in lessons:
+                oid_str = str(les.get("object_id") or "").strip()
+                subj_str = str(les.get("author_subject") or "").strip()
+                if oid_str and subj_str:
+                    authors_by_obj.setdefault(oid_str, set()).add(subj_str)
+            cross_commit_count = sum(
+                max(0, len(authors) - 1) for authors in authors_by_obj.values()
+            )
+            cross_actor_handoff_count = cross_actor_ask_count + cross_commit_count
+            handoff_count = (
+                cross_actor_handoff_count
+                if cross_actor_handoff_count > 0
+                else lesson_count
+            )
+
+            d["object_count"] = object_count
+            d["tagged_object_count"] = tagged_object_count
+            d["lesson_count"] = lesson_count
+            d["active_cursor_count"] = active_cursor_count
+            d["ask_count"] = ask_count
+            d["cross_actor_handoff_count"] = cross_actor_handoff_count
+            d["handoff_count"] = handoff_count
             out.append(d)
         return out
 

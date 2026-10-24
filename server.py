@@ -716,6 +716,31 @@ def ask(
                 ),
                 None,
             )
+            attrs = db._parse_attrs_json(match.get("attrs_json"))
+            attrs["ask_count"] = int(attrs.get("ask_count") or 0) + 1
+            now_ts = db.now_iso()
+            attrs["last_asked_at"] = now_ts
+            caller_sub = (_CURRENT_SUBJECT.get() or "").strip()
+            latest_author = (
+                str(lessons[0].get("author_subject") or "").strip() if lessons else ""
+            )
+            is_cross_actor = bool(
+                latest_author
+                and caller_sub
+                and caller_sub != "anonymous"
+                and caller_sub != latest_author
+            )
+            if is_cross_actor:
+                attrs["cross_actor_ask_count"] = (
+                    int(attrs.get("cross_actor_ask_count") or 0) + 1
+                )
+                attrs["last_handoff_from"] = latest_author
+                attrs["last_handoff_to"] = caller_sub
+                attrs["last_handoff_at"] = now_ts
+            conn.execute(
+                db.q("UPDATE object SET attrs_json = ? WHERE space_id = ? AND id = ?"),
+                (json.dumps(attrs), sid, match["id"]),
+            )
             clean_match = {
                 "id": match["id"],
                 "label": match["label"],
@@ -737,6 +762,7 @@ def ask(
                 "score": round(score, 4),
                 "delta": round(delta, 4),
                 "active_cursor": active_cursor,
+                "cross_actor_handoff": is_cross_actor,
                 "lessons": lessons,
                 "claims": claims,
                 "_data_not_instructions": DATA_NOT_INSTRUCTIONS,
@@ -1128,11 +1154,15 @@ class SpaceAuthMiddleware:
                     return
                 space_id = str(sp["id"])
             tok_sp = _CURRENT_SPACE_ID.set(space_id)
+            hdr_sub = headers.get("x-loci-subject", "").strip()
+            tok_hdr_sub = _CURRENT_SUBJECT.set(hdr_sub) if hdr_sub else None
             try:
                 mutated = dict(scope)
                 mutated["path"] = f"{BASE}/mcp"
                 await self.app(mutated, receive, send)
             finally:
+                if tok_hdr_sub is not None:
+                    _CURRENT_SUBJECT.reset(tok_hdr_sub)
                 _CURRENT_SPACE_ID.reset(tok_sp)
             return
 
@@ -1218,11 +1248,11 @@ def _state_for_space(space_id: str) -> dict[str, Any]:
                 (space_id,),
             ).fetchall()
         ]
-        objects = [
+        raw_objects = [
             dict(r)
             for r in conn.execute(
                 db.q(
-                    "SELECT o.id, o.label, p.label AS place, o.tag_code, o.verbatim_text, o.canonical_class, o.material, o.mounting "
+                    "SELECT o.id, o.label, p.label AS place, o.tag_code, o.verbatim_text, o.canonical_class, o.material, o.mounting, o.attrs_json "
                     "FROM object o LEFT JOIN place p ON p.space_id = o.space_id AND p.id = o.place_id "
                     "WHERE o.space_id = ? ORDER BY o.last_seen_at DESC"
                 ),
@@ -1251,6 +1281,21 @@ def _state_for_space(space_id: str) -> dict[str, Any]:
                 (space_id,),
             ).fetchall()
         ]
+    obj_attrs = [db._parse_attrs_json(o.get("attrs_json")) for o in raw_objects]
+    objects = [{k: v for k, v in o.items() if k != "attrs_json"} for o in raw_objects]
+    tagged_object_count = sum(
+        1 for o in objects if str(o.get("tag_code") or "").strip()
+    )
+    active_cursor_count = sum(
+        1
+        for les in lessons
+        if bool(les.get("is_cursor_active"))
+        and str(les.get("next_question") or "").strip()
+    )
+    ask_count = sum(int(a.get("ask_count") or 0) for a in obj_attrs)
+    cross_actor_ask_count = sum(
+        int(a.get("cross_actor_ask_count") or 0) for a in obj_attrs
+    )
     authors_by_obj: dict[str, set[str]] = {}
     for les in lessons:
         oid_str = str(les.get("object_id") or "")
@@ -1258,7 +1303,10 @@ def _state_for_space(space_id: str) -> dict[str, Any]:
         if oid_str and subj_str:
             authors_by_obj.setdefault(oid_str, set()).add(subj_str)
     cross_tech = sum(max(0, len(authors) - 1) for authors in authors_by_obj.values())
-    handoff_count = cross_tech if cross_tech > 0 else len(lessons)
+    cross_actor_handoff_count = cross_actor_ask_count + cross_tech
+    handoff_count = (
+        cross_actor_handoff_count if cross_actor_handoff_count > 0 else len(lessons)
+    )
     return {
         "space": (
             {
@@ -1270,6 +1318,10 @@ def _state_for_space(space_id: str) -> dict[str, Any]:
             if space
             else {"id": space_id}
         ),
+        "tagged_object_count": tagged_object_count,
+        "active_cursor_count": active_cursor_count,
+        "ask_count": ask_count,
+        "cross_actor_handoff_count": cross_actor_handoff_count,
         "handoff_count": handoff_count,
         "places": places,
         "objects": objects,
