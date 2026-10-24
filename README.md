@@ -38,9 +38,9 @@ host model transcribes it into a required string parameter, not because we look 
 
 | Host | How | Auth Modes |
 |---|---|---|
-| **Claude** (Web / Desktop / iOS / Android) | Settings → Connectors → Add custom connector → paste `https://loci.lincspace.ai/mcp` (OAuth 2.1) or `https://loci.lincspace.ai/loci-<space_token>/mcp` | OAuth 2.1 (`S256` PKCE + Dynamic Client Registration) or per-space capability path |
-| **ChatGPT** (Web / Mobile Developer Mode) | Developer mode → add an MCP server → `https://loci.lincspace.ai/mcp` or `/loci-<space_token>/mcp` | OAuth 2.1 or capability path |
-| **Gemini Live / CLI / ADK** | Streamable HTTP MCP client pointed at `/mcp` (`Authorization: Bearer <token>`) or `/loci-<space_token>/mcp` | OAuth 2.1 Bearer token or capability path |
+| **Claude** (Web / Desktop / iOS / Android) | Settings → Connectors → Add custom connector → paste `https://loci.lincinnovations.com/mcp` (OAuth 2.1) or `https://loci.lincinnovations.com/loci-<space_token>/mcp` | OAuth 2.1 (`S256` PKCE + Dynamic Client Registration) or per-space capability path |
+| **ChatGPT** (Web / Mobile Developer Mode) | Developer mode → add an MCP server → `https://loci.lincinnovations.com/mcp` or `https://loci.lincinnovations.com/loci-<space_token>/mcp` | OAuth 2.1 or capability path |
+| **Gemini Live / CLI / ADK** | Streamable HTTP MCP client pointed at `https://loci.lincinnovations.com/mcp` (`Authorization: Bearer <token>`) or `/loci-<space_token>/mcp` | OAuth 2.1 Bearer token or capability path |
 
 **Authorization is proof of possession.** The OAuth consent page asks for the Space's access token (the `<space_token>` in its capability URL) and issues a code only for that Space; it never lists tenants. The `client_credentials` grant takes the same token as `client_secret`. Redirect targets must be `https`, or `http` to loopback. Dynamic Client Registration stays stateless: `/oauth/register` validates 1 to 5 `redirect_uris` and signs them into the issued `client_id`, `/oauth/authorize` sends a code only to a `redirect_uri` that `client_id` registered (exact match), and `/oauth/token` exchanges a code only with the `client_id` and `redirect_uri` it was issued for. PKCE is mandatory and `S256`-only: `/oauth/authorize` refuses a request without a well-formed `S256` `code_challenge`, and a code exchanges only with its matching `code_verifier`. Spaces store only a SHA-256 digest of their token. `GET /api/spaces` needs a Bearer credential: the operator's root token lists every Space, a Space token or OAuth access token lists only its own. `POST /api/spaces` (create) is operator-only, and the landing page lists no tenants.
 
@@ -203,14 +203,16 @@ small-embedding similarity on the description.
 
 ```mermaid
 flowchart LR
-  A["Host assistant<br/>(Claude / ChatGPT)<br/>vision model → text"]
-  V["Browser<br/>graph viewer"]
-  B["loci.lincspace.ai<br/>AWS App Runner · us-west-2<br/>FastMCP · stateless HTTP"]
-  C[("Amazon RDS PostgreSQL 16<br/>private VPC · 4 tables")]
+  A["Host assistant<br/>(Claude / ChatGPT / Gemini)<br/>vision model → text"]
+  V["Browser<br/>Space console &amp; showcase"]
+  B["loci.lincinnovations.com<br/>Google Cloud Run · us-west1<br/>FastMCP · OAuth 2.1 + stateless HTTP"]
+  C[("Cloud SQL PostgreSQL 16<br/>FORCE RLS · 6 tables")]
+  E["Vertex AI<br/>text-embedding-004 (768-d)"]
   D["Laptop fallback:<br/>same server, SQLite,<br/>Tailscale Funnel"]
-  A -- "HTTPS Streamable HTTP<br/>/loci-&lt;token&gt;/mcp" --> B
-  V -- "HTTPS<br/>/loci-&lt;token&gt;/" --> B
-  B -- "VPC connector" --> C
+  A -- "HTTPS Streamable HTTP<br/>/mcp or /loci-&lt;token&gt;/mcp" --> B
+  V -- "HTTPS<br/>/ or /loci-&lt;token&gt;/" --> B
+  B -- "Cloud SQL socket / DSN" --> C
+  B -- "ADC semantic recall" --> E
   A -. "fallback connector" .-> D
 ```
 
@@ -285,37 +287,21 @@ provider write; the explicit acceptance probe and the state route establish prov
 
 ## Deploy
 
-The live stack is **AWS App Runner + Amazon RDS PostgreSQL 16** in `us-west-2`, behind the
-`loci.lincspace.ai` custom domain. `infra/app-runner.yaml` creates ECR, RDS, the private VPC path,
-Secrets Manager entries and App Runner; `scripts/bootstrap_aws.sh` builds and deploys the image, and
-`scripts/bind_domain.sh` attaches the domain. The viewer and MCP route share the capability token;
-their exact URLs stay in the gitignored `.loci-cloud-url`. The public health check is
-[`https://loci.lincspace.ai/health`](https://loci.lincspace.ai/health).
+The live production stack is **Google Cloud Run + Cloud SQL PostgreSQL 16 (RLS) + Vertex AI (`text-embedding-004`)** in `us-west1` (`project=loci-0xl0c1`, service `loci`), served behind [`https://loci.lincinnovations.com`](https://loci.lincinnovations.com). The public health check is [`https://loci.lincinnovations.com/health`](https://loci.lincinnovations.com/health).
 
-Use the bootstrap script only for a new stack. To redeploy the existing service from a clean `main`,
-put the Ambiguous values in the ignored `.env`, then run:
+To deploy a new revision from a clean `main` checkout to Google Cloud Run:
 
 ```bash
-EXPECTED_ACCOUNT=<aws-account-id> just deploy-aws
+just deploy-gcp
 ```
 
-The repeat-deploy recipe preserves the existing stack, uploads the Ambiguous values to Secrets
-Manager, builds a uniquely tagged `linux/amd64` image, updates App Runner with public egress, and waits
-for an Ambiguous-configured health response. It does not recreate RDS or rebind the custom domain.
-
-Tear-down:
+For first-time stack bootstrap on GCP (`scripts/bootstrap_gcp.sh` provisions Artifact Registry, Cloud SQL PostgreSQL 16, Secret Manager entries, and Cloud Run, writing URLs to the gitignored `.loci-gcp-url`):
 
 ```bash
-aws cloudformation delete-stack --stack-name 0xl0c1
+IMAGE_ONLY=1 EXPECTED_PROJECT=loci-0xl0c1 ./scripts/bootstrap_gcp.sh
 ```
 
-An optional **Google Cloud Run + Cloud SQL** deployment uses the same image and application code but
-is a separate graph with its own database and capability token. `scripts/bootstrap_gcp.sh` provisions
-that stack and writes its URLs to the gitignored `.loci-gcp-url`:
-
-```bash
-IMAGE_ONLY=1 EXPECTED_PROJECT=<project> ./scripts/bootstrap_gcp.sh
-```
+*(Historical note: the initial hackathon AWS App Runner + RDS templates in `infra/app-runner.yaml` and `scripts/bootstrap_aws.sh` are retained for reference via `EXPECTED_ACCOUNT=<aws-account-id> just deploy-aws`.)*
 
 ### Rotating the signing secret
 

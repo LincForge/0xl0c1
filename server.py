@@ -1147,7 +1147,7 @@ def _base_url(request: Request[State]) -> str:
     host = (
         request.headers.get("x-forwarded-host")
         or request.headers.get("host")
-        or "loci.lincspace.ai"
+        or "loci.lincinnovations.com"
     )
     return f"{proto}://{host}"
 
@@ -1233,7 +1233,7 @@ def _state_for_space(space_id: str) -> dict[str, Any]:
             {**dict(r), "is_cursor_active": bool(dict(r).get("is_cursor_active"))}
             for r in conn.execute(
                 db.q(
-                    "SELECT l.id, l.title, l.author_subject, o.label AS object, l.next_question, l.is_cursor_active "
+                    "SELECT l.id, l.object_id, l.title, l.author_subject, o.label AS object, l.next_question, l.is_cursor_active "
                     "FROM lesson l JOIN object o ON o.space_id = l.space_id AND o.id = l.object_id "
                     "WHERE l.space_id = ? ORDER BY l.created_at DESC"
                 ),
@@ -1251,6 +1251,14 @@ def _state_for_space(space_id: str) -> dict[str, Any]:
                 (space_id,),
             ).fetchall()
         ]
+    authors_by_obj: dict[str, set[str]] = {}
+    for les in lessons:
+        oid_str = str(les.get("object_id") or "")
+        subj_str = str(les.get("author_subject") or "")
+        if oid_str and subj_str:
+            authors_by_obj.setdefault(oid_str, set()).add(subj_str)
+    cross_tech = sum(max(0, len(authors) - 1) for authors in authors_by_obj.values())
+    handoff_count = cross_tech if cross_tech > 0 else len(lessons)
     return {
         "space": (
             {
@@ -1262,6 +1270,7 @@ def _state_for_space(space_id: str) -> dict[str, Any]:
             if space
             else {"id": space_id}
         ),
+        "handoff_count": handoff_count,
         "places": places,
         "objects": objects,
         "lessons": lessons,
@@ -1294,7 +1303,9 @@ _MAX_CLIENT_NAME_LEN = 100
 
 def _registration_error(error: str, description: str) -> JSONResponse:
     """An RFC 7591 client registration error."""
-    return JSONResponse({"error": error, "error_description": description}, status_code=400)
+    return JSONResponse(
+        {"error": error, "error_description": description}, status_code=400
+    )
 
 
 def _valid_redirect_uris(value: object) -> list[str] | None:
@@ -1313,7 +1324,9 @@ def _valid_redirect_uris(value: object) -> list[str] | None:
 async def oauth_register_route(request: Request[State]) -> Response:
     body = await _json_object(request)
     if body is None:
-        return _registration_error("invalid_client_metadata", "Body must be a JSON object.")
+        return _registration_error(
+            "invalid_client_metadata", "Body must be a JSON object."
+        )
     redirect_uris = _valid_redirect_uris(body.get("redirect_uris"))
     if redirect_uris is None:
         return _registration_error(
@@ -1325,7 +1338,9 @@ async def oauth_register_route(request: Request[State]) -> Response:
     if client_name is None:
         client_name = "MCP Connector"
     if not isinstance(client_name, str):
-        return _registration_error("invalid_client_metadata", "client_name must be a string.")
+        return _registration_error(
+            "invalid_client_metadata", "client_name must be a string."
+        )
     client_name = client_name[:_MAX_CLIENT_NAME_LEN]
     return JSONResponse(
         {
@@ -1400,19 +1415,64 @@ async def oauth_authorize_route(request: Request[State]) -> Response:
             f'<input type="hidden" name="{html.escape(k)}" value="{html.escape(v)}">'
             for k, v in params.items()
         )
-        page = f"""<!doctype html><html><head><meta charset="utf-8"><title>Authorize LINC Loci MCP</title>
-        <style>body{{background:#0b0d10;color:#e6edf3;font:14px/1.5 ui-monospace,monospace;max-width:520px;margin:60px auto;padding:24px;}}
-        .card{{background:#13171d;border:1px solid #222933;border-radius:8px;padding:24px;}}
-        select,input,button{{width:100%;padding:10px;margin-top:8px;margin-bottom:16px;background:#0b0d10;color:#e6edf3;border:1px solid #222933;border-radius:6px;}}
-        button{{background:#58a6ff;color:#0b0d10;font-weight:700;cursor:pointer;border:0;}}</style></head>
-        <body><div class="card"><h2>Connect Assistant to LINC Loci</h2>
-        <p>Paste the access token of the Space this connector may use. It is the part after
-        <code>/loci-</code> in your Space console URL.</p>
-        <p>Access will be granted to: {destination}</p>
-        <form method="post" action="/oauth/authorize">{hidden_inputs}
-        <label>Space access token</label><input type="password" name="space_token" autocomplete="off" required>
-        <label>Operator / Technician Email</label><input type="email" name="subject" value="operator@lincinnovations.com" required>
-        <button type="submit">Authorize MCP Access</button></form></div></body></html>"""
+        page = f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Authorize LINC Loci (0xL0C1) MCP Connector</title>
+<style>
+  :root {{
+    --bg: #080a0e; --panel: #10141b; --panel-2: #151b24; --border: #212936;
+    --fg: #e6edf3; --muted: #8b949e; --accent: #58a6ff; --green: #3fb950; --amber: #d29922;
+  }}
+  * {{ box-sizing: border-box; }}
+  body {{ margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; }}
+  a {{ color: var(--accent); text-decoration: none; }}
+  .topbar {{ display: flex; align-items: center; justify-content: space-between; padding: 14px 28px; border-bottom: 1px solid var(--border); background: #0b0e14; flex-wrap: wrap; gap: 12px; }}
+  .brand {{ display: flex; align-items: center; gap: 10px; font-weight: 700; color: var(--fg); }}
+  .brand-hex {{ padding: 3px 8px; border-radius: 4px; background: rgba(88,166,255,0.12); border: 1px solid rgba(88,166,255,0.35); color: var(--accent); font-size: 12px; }}
+  .wrap {{ max-width: 560px; margin: 48px auto; padding: 0 20px; }}
+  .card {{ background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 28px; box-shadow: 0 16px 40px rgba(0,0,0,0.45); }}
+  .badges {{ display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }}
+  .badge {{ font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; padding: 3px 8px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--border); color: var(--muted); }}
+  .badge.sec {{ color: var(--green); border-color: rgba(63,185,80,0.35); background: rgba(63,185,80,0.1); }}
+  h2 {{ margin: 0 0 10px; font-size: 18px; letter-spacing: -0.01em; }}
+  p {{ margin: 0 0 14px; color: var(--muted); }}
+  .dest-box {{ padding: 12px 14px; border-radius: 6px; background: var(--panel-2); border: 1px solid var(--border); color: var(--fg); margin-bottom: 18px; }}
+  label {{ display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 6px; font-weight: 600; }}
+  input {{ width: 100%; padding: 10px 12px; margin-bottom: 16px; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; font: inherit; }}
+  input:focus {{ outline: none; border-color: var(--accent); }}
+  button {{ width: 100%; padding: 11px 16px; background: var(--accent); color: #06080c; font: inherit; font-weight: 700; border: 0; border-radius: 6px; cursor: pointer; }}
+  button:hover {{ filter: brightness(1.08); }}
+  code {{ color: var(--accent); background: var(--bg); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border); }}
+  .foot {{ margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; }}
+</style></head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/"><span class="brand-hex">0xL0C1</span><span>LINC Loci · OAuth 2.1 Consent Gate</span></a>
+    <nav style="display:flex;gap:16px;font-size:12px"><a href="/">Console</a><a href="/pricing">Plans &amp; Tag Kits</a><a href="/labels-sample.svg">Sample SVG Tags</a></nav>
+  </header>
+  <main class="wrap">
+    <div class="card">
+      <div class="badges">
+        <span class="badge sec">OAuth 2.1 · S256 PKCE</span>
+        <span class="badge sec">Signed DCR Client</span>
+        <span class="badge">Postgres 16 FORCE RLS</span>
+        <span class="badge">Zero-Pixel Recall</span>
+      </div>
+      <h2>Connect Assistant to LINC Loci</h2>
+      <p>Paste the capability access token of the Space this assistant connector is authorized to read and write. It is the token segment after <code>/loci-</code> in your private Space console URL.</p>
+      <div class="dest-box">Access will be granted to: {destination}</div>
+      <form method="post" action="/oauth/authorize">{hidden_inputs}
+        <label for="space-token-input">Space access token</label>
+        <input id="space-token-input" type="password" name="space_token" placeholder="e.g. a8f9c2..." autocomplete="off" required>
+        <label for="subject-input">Operator / Technician Attribution Email</label>
+        <input id="subject-input" type="email" name="subject" value="operator@lincinnovations.com" required>
+        <button type="submit">Authorize MCP Access</button>
+      </form>
+      <div class="foot">
+        <span>Scopes: <code>mcp:tools loci:read loci:write</code></span>
+        <span>Tenants are isolated by Postgres 16 RLS</span>
+      </div>
+    </div>
+  </main>
+</body></html>"""
         return HTMLResponse(page)
 
     form = await request.form()
@@ -1432,9 +1492,7 @@ async def oauth_authorize_route(request: Request[State]) -> Response:
         return error
     space = _resolve_space_from_token_param(str(form.get("space_token") or ""))
     if space is None:
-        return HTMLResponse(
-            "Unknown or missing Space access token.", status_code=401
-        )
+        return HTMLResponse("Unknown or missing Space access token.", status_code=401)
 
     code = mint_authorization_code(
         client_id=client_id,
@@ -1539,7 +1597,10 @@ async def _json_object(request: Request[State]) -> dict[str, Any] | None:
 
 def _bad_body() -> JSONResponse:
     return JSONResponse(
-        {"error": "invalid_request", "error_description": "Body must be a JSON object."},
+        {
+            "error": "invalid_request",
+            "error_description": "Body must be a JSON object.",
+        },
         status_code=400,
     )
 
@@ -1566,7 +1627,10 @@ async def spaces_api_route(request: Request[State]) -> Response:
         return JSONResponse({"spaces": spaces})
     if caller != db.DEFAULT_SPACE_ID:
         return JSONResponse(
-            {"error": "forbidden", "error_description": "Only the operator creates spaces."},
+            {
+                "error": "forbidden",
+                "error_description": "Only the operator creates spaces.",
+            },
             status_code=403,
         )
     body = await _json_object(request)
@@ -1616,48 +1680,621 @@ async def billing_checkout_route(request: Request[State]) -> Response:
     )
 
 
+@mcp.custom_route("/labels-sample.svg", methods=["GET"])
+async def sample_labels_svg_route(request: Request[State]) -> Response:  # noqa: ARG001
+    sample_labels = [
+        {
+            "tag_code": "CM-7K",
+            "label": "Chilled Water Isolation Valve #4",
+            "place": "Bldg B Mechanical Room",
+        },
+        {
+            "tag_code": "CM-3P",
+            "label": "Grundfos Magna3 Circulator B2",
+            "place": "Roof Chiller Pad East",
+        },
+        {
+            "tag_code": "LC-4M",
+            "label": "Pixel 6a Debug Phone #2",
+            "place": "Test Phone Bench",
+        },
+        {
+            "tag_code": "LC-9W",
+            "label": "Rigol DP832 Bench Power Supply",
+            "place": "Soldering & PCB Station",
+        },
+        {
+            "tag_code": "SP-8R",
+            "label": "CZ 457 MTR Match Rifle Optic",
+            "place": "Pelican 1750 Rifle Case",
+        },
+        {
+            "tag_code": "FA-2V",
+            "label": "Main Water Shutoff Gate Valve",
+            "place": "Garage Utility Panel",
+        },
+    ]
+    svg = render_label_sheet_svg(
+        space_name="LINC Loci Showcase · Sample Tag Sheet", labels=sample_labels
+    )
+    return Response(content=svg, media_type="image/svg+xml")
+
+
 @mcp.custom_route("/pricing", methods=["GET"])
 async def pricing_page_route(request: Request[State]) -> Response:  # noqa: ARG001
-    html_body = """<!doctype html><html><head><meta charset="utf-8"><title>LINC Loci — Pricing & Field-Service Tiers</title>
-    <style>body{background:#0b0d10;color:#e6edf3;font:14px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;max-width:1040px;margin:0 auto;padding:32px;}
-    .tiers{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px;margin-top:24px;}
-    .card{background:#13171d;border:1px solid #222933;border-radius:8px;padding:20px;}
-    .price{font-size:26px;font-weight:800;color:#58a6ff;margin:8px 0;}
-    a.btn{display:inline-block;margin-top:12px;padding:8px 14px;background:#58a6ff;color:#0b0d10;font-weight:700;border-radius:6px;text-decoration:none;}</style></head>
-    <body><h1>LINC Loci (0xL0C1) · Pricing &amp; Physical Tag Kits</h1>
-    <p>Zero-pixel physical-world memory across Claude, ChatGPT, and Gemini. Powered by Google Cloud Run, Cloud SQL PostgreSQL 16 (RLS), and Vertex AI.</p>
+    html_body = """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LINC Loci (0xL0C1) — Pricing, Field-Service Tiers &amp; Tag Kits</title>
+<style>
+  :root {
+    --bg: #080a0e; --panel: #10141b; --panel-2: #151b24; --border: #212936;
+    --fg: #e6edf3; --muted: #8b949e; --accent: #58a6ff; --green: #3fb950; --amber: #d29922;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .topbar { display: flex; align-items: center; justify-content: space-between; padding: 14px 28px; border-bottom: 1px solid var(--border); background: #0b0e14; flex-wrap: wrap; gap: 12px; position: sticky; top: 0; z-index: 20; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; color: var(--fg); text-decoration: none; }
+  .brand-hex { padding: 3px 8px; border-radius: 4px; background: rgba(88,166,255,0.12); border: 1px solid rgba(88,166,255,0.35); color: var(--accent); font-size: 12px; }
+  .nav-links { display: flex; align-items: center; gap: 18px; font-size: 12px; flex-wrap: wrap; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 36px 28px 64px; }
+  .eyebrow { display: inline-flex; align-items: center; gap: 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent); background: rgba(88,166,255,0.1); border: 1px solid rgba(88,166,255,0.3); padding: 4px 10px; border-radius: 999px; margin-bottom: 14px; }
+  h1 { margin: 0 0 10px; font-size: 28px; letter-spacing: -0.02em; }
+  .lead { color: var(--muted); max-width: 780px; margin: 0 0 28px; font-size: 14px; }
+  .tiers { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 24px; }
+  @media (max-width: 980px) { .tiers { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 580px) { .tiers { grid-template-columns: 1fr; } }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 22px; display: flex; flex-direction: column; justify-content: space-between; position: relative; }
+  .card.featured { border-color: var(--accent); box-shadow: 0 0 0 1px rgba(88,166,255,0.25), 0 16px 36px rgba(0,0,0,0.45); }
+  .tier-badge { position: absolute; top: 14px; right: 14px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; padding: 2px 8px; border-radius: 999px; background: rgba(88,166,255,0.15); color: var(--accent); border: 1px solid rgba(88,166,255,0.35); }
+  .card h3 { margin: 0 0 6px; font-size: 16px; }
+  .price { font-size: 28px; font-weight: 800; color: var(--accent); margin: 6px 0 12px; }
+  .price span { font-size: 12px; font-weight: 400; color: var(--muted); }
+  .card p { color: var(--muted); font-size: 12px; margin: 0 0 14px; }
+  .feat-list { list-style: none; padding: 0; margin: 0 0 20px; font-size: 12px; color: var(--fg); }
+  .feat-list li { padding: 5px 0; border-bottom: 1px solid rgba(33,41,54,0.65); display: flex; gap: 8px; align-items: flex-start; }
+  .feat-list li::before { content: "✓"; color: var(--green); font-weight: 700; }
+  button.btn { width: 100%; padding: 10px 14px; background: var(--accent); color: #06080c; font: inherit; font-weight: 700; border-radius: 6px; border: 0; cursor: pointer; transition: filter 0.15s; }
+  button.btn.secondary { background: var(--panel-2); color: var(--fg); border: 1px solid var(--border); }
+  button.btn:hover { filter: brightness(1.08); }
+  .tag-showcase { margin-top: 36px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 24px; display: grid; grid-template-columns: 1.2fr 1fr; gap: 24px; align-items: center; }
+  @media (max-width: 820px) { .tag-showcase { grid-template-columns: 1fr; } }
+  dialog:modal { overscroll-behavior: contain; background: var(--panel); color: var(--fg); border: 1px solid var(--accent); border-radius: 10px; padding: 26px; max-width: 480px; width: calc(100% - 32px); box-shadow: 0 24px 60px rgba(0,0,0,0.7); }
+  dialog::backdrop { overflow: hidden; overscroll-behavior: contain; background: rgba(6, 8, 12, 0.78); backdrop-filter: blur(4px); }
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 11px; text-transform: uppercase; color: var(--muted); margin-bottom: 5px; }
+  .field input { width: 100%; padding: 9px 11px; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; font: inherit; }
+  .modal-result { margin-top: 14px; padding: 12px; border-radius: 6px; background: var(--panel-2); border: 1px solid var(--border); font-size: 12px; display: none; }
+</style></head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/"><span class="brand-hex">0xL0C1</span><span>LINC Loci · Pricing &amp; Physical Tag Kits</span></a>
+    <nav class="nav-links">
+      <a href="/">Console &amp; Showcase</a>
+      <a href="/#connect">Connect MCP</a>
+      <a href="/labels-sample.svg" target="_blank" rel="noopener">Sample SVG Sheet</a>
+      <a href="https://github.com/LincForge/0xl0c1" target="_blank" rel="noopener">GitHub</a>
+    </nav>
+  </header>
+  <main class="wrap">
+    <div class="eyebrow">Multi-Tenant Cloud SQL Postgres 16 (RLS) · Vertex AI 768-D</div>
+    <h1>LINC Loci (0xL0C1) · Pricing &amp; Physical Tag Kits</h1>
+    <p class="lead">Zero-pixel physical-world memory across Claude, ChatGPT, and Gemini. No raw camera photos ever touch the server—only structured descriptors and Mod-30 Visual Base32 short codes.</p>
+
     <div class="tiers">
-      <div class="card"><h3>Maker / Household</h3><div class="price">$0</div><p>1 Space · up to 50 objects · self-print Visual Base32 SVG label sheet · Claude &amp; ChatGPT MCP.</p><a class="btn" href="/">Start Free</a></div>
-      <div class="card"><h3>Pro / Master Shop</h3><div class="price">$12/mo</div><p>Up to 5 Spaces · unlimited objects · Vertex AI text-embedding-004 semantic recall · custom tag prefixes.</p><a class="btn" href="/">Upgrade Space</a></div>
-      <div class="card"><h3>Team / Field Service</h3><div class="price">$49/mo</div><p>Commercial facilities, HVAC &amp; plumbing contractors · unlimited job sites · OAuth 2.1 team seats &amp; cross-tech handoff attribution.</p><a class="btn" href="/">Launch Team Space</a></div>
-      <div class="card"><h3>Physical Tag Pack</h3><div class="price">$29</div><p>50x weatherproof UV/oil-resistant high-contrast 0xL0C1 visual short-code stickers shipped to your shop.</p><a class="btn" href="/">Order Tag Pack</a></div>
-    </div></body></html>"""
+      <div class="card">
+        <div>
+          <h3>Maker / Household</h3>
+          <div class="price">$0 <span>/ forever</span></div>
+          <p>For home workshops, utility panels, and personal hardware benches.</p>
+          <ul class="feat-list">
+            <li>1 isolated Space with Postgres 16 RLS</li>
+            <li>Up to 50 physical objects &amp; places</li>
+            <li>Self-print 300-DPI Visual Base32 SVG sheet</li>
+            <li>Claude, ChatGPT &amp; Gemini MCP access</li>
+          </ul>
+        </div>
+        <button type="button" class="btn secondary" data-tier="free" data-title="Maker / Household ($0)">Provision Free Space</button>
+      </div>
+
+      <div class="card">
+        <div>
+          <h3>Pro / Master Shop</h3>
+          <div class="price">$12<span>/mo</span></div>
+          <p>For multi-property owners, electronics labs, and precision match kits.</p>
+          <ul class="feat-list">
+            <li>Up to 5 Spaces with custom 2-char prefixes</li>
+            <li>Unlimited physical objects &amp; lessons</li>
+            <li>Vertex AI text-embedding-004 hybrid RRF recall</li>
+            <li>Active cursor &amp; open next-question tracking</li>
+          </ul>
+        </div>
+        <button type="button" class="btn" data-tier="pro" data-title="Pro / Master Shop ($12/mo)">Upgrade to Pro</button>
+      </div>
+
+      <div class="card featured">
+        <span class="tier-badge">Most Popular</span>
+        <div>
+          <h3>Team / Field Service</h3>
+          <div class="price">$49<span>/mo</span></div>
+          <p>Commercial facilities, HVAC &amp; plumbing contractors with shift handoffs.</p>
+          <ul class="feat-list">
+            <li>Unlimited job-site Spaces &amp; tag sheets</li>
+            <li>OAuth 2.1 S256 PKCE + Signed DCR team seats</li>
+            <li>Cross-tech handoff attribution (`author_subject`)</li>
+            <li>Honest 0.50–0.85 confirm band &amp; dry-run gate</li>
+          </ul>
+        </div>
+        <button type="button" class="btn" data-tier="team" data-title="Team / Field Service ($49/mo)">Launch Team Space</button>
+      </div>
+
+      <div class="card">
+        <div>
+          <h3>Physical Tag Pack</h3>
+          <div class="price">$29 <span>/ 50-pack</span></div>
+          <p>Die-cut weatherproof UV/oil-resistant high-contrast 0xL0C1 visual tags.</p>
+          <ul class="feat-list">
+            <li>50x matte-black / signal-white vinyl stickers</li>
+            <li>20-char homoglyph-free alphabet + Mod-30 check</li>
+            <li>Readable by any frontier VLM at 1.5m distance</li>
+            <li>Includes instant SVG sheet download</li>
+          </ul>
+        </div>
+        <button type="button" class="btn secondary" data-tier="tags" data-title="50x Physical Tag Pack ($29)">Order Tag Pack</button>
+      </div>
+    </div>
+
+    <section class="tag-showcase">
+      <div>
+        <h2 style="margin:0 0 8px;font-size:18px">Anatomy of a 0xL0C1 Visual Base32 Tag</h2>
+        <p style="margin:0 0 12px;color:var(--muted)">Unlike QR codes that require a dedicated scanner app and fail under grease or glare, Loci tags use a 20-character homoglyph-free alphabet (<code>23456789CFGHJMPQRVWX</code> — excluding <code>0/O/1/I/L/B/8/S/5/Z/2</code> lookalikes) with a deterministic Mod-30 check character. Any assistant camera reads it natively inside a normal conversation.</p>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:16px">
+          <a href="/labels-sample.svg" target="_blank" rel="noopener" style="padding:8px 14px;border-radius:6px;background:var(--accent);color:#06080c;font-weight:700;text-decoration:none">Open Printable Sample SVG Sheet</a>
+          <a href="/#showcase" style="padding:8px 14px;border-radius:6px;background:var(--panel-2);border:1px solid var(--border);color:var(--fg);text-decoration:none">Explore Live Showcase Spaces</a>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:center">
+        <svg xmlns="http://www.w3.org/2000/svg" width="320" height="128" viewBox="0 0 250 100" role="img" aria-label="0xL0C1 Tag Preview CM-7K">
+          <rect x="2" y="2" width="246" height="96" rx="10" fill="#ffffff" stroke="#0d1117" stroke-width="3"/>
+          <rect x="2" y="2" width="64" height="96" rx="8" fill="#0d1117"/>
+          <text x="34" y="42" text-anchor="middle" fill="#58a6ff" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="11" font-weight="700">0xL0C1</text>
+          <text x="34" y="62" text-anchor="middle" fill="#e6edf3" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="9">LOCI TAG</text>
+          <text x="154" y="48" text-anchor="middle" fill="#0d1117" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="30" font-weight="900" letter-spacing="2">CM-7K</text>
+          <text x="154" y="70" text-anchor="middle" fill="#24292f" font-family="system-ui,-apple-system,sans-serif" font-size="10" font-weight="600">Chilled Water Isolation #4</text>
+          <text x="154" y="85" text-anchor="middle" fill="#57606a" font-family="system-ui,-apple-system,sans-serif" font-size="8">Bldg B Mechanical Room</text>
+        </svg>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="tier-dialog">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <strong id="dialog-title" style="font-size:16px">Select Plan</strong>
+      <button type="button" id="dialog-close" style="background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:4px;padding:3px 8px;cursor:pointer;font:inherit">ESC</button>
+    </div>
+    <p style="color:var(--muted);font-size:12px;margin:0 0 14px">Reserve your tier or attach a plan to an existing Space ID. During the Nov 15 Field Validation Pilot, we provision new operator &amp; contractor Spaces within 1 business hour.</p>
+    <form id="checkout-form">
+      <input type="hidden" id="dialog-tier" name="tier" value="team">
+      <div class="field">
+        <label for="dialog-email">Operator / Billing Email</label>
+        <input id="dialog-email" type="email" required placeholder="ops@company.com">
+      </div>
+      <div class="field">
+        <label for="dialog-space">Existing Space ID (optional — leave default for new Space)</label>
+        <input id="dialog-space" type="text" value="default" placeholder="default or sp_...">
+      </div>
+      <button type="submit" class="btn">Generate Checkout &amp; Provisioning Link</button>
+    </form>
+    <div id="modal-result" class="modal-result"></div>
+  </dialog>
+
+  <script>
+    const dialog = document.getElementById('tier-dialog');
+    const titleEl = document.getElementById('dialog-title');
+    const tierEl = document.getElementById('dialog-tier');
+    const resEl = document.getElementById('modal-result');
+    document.querySelectorAll('button[data-tier]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        tierEl.value = btn.getAttribute('data-tier') || 'pro';
+        titleEl.textContent = btn.getAttribute('data-title') || 'Select Plan';
+        resEl.style.display = 'none';
+        dialog.showModal();
+      });
+    });
+    document.getElementById('dialog-close').addEventListener('click', () => dialog.close());
+    document.getElementById('checkout-form').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const tier = tierEl.value;
+      const email = document.getElementById('dialog-email').value.trim();
+      const space_id = document.getElementById('dialog-space').value.trim() || 'default';
+      const resp = await fetch('/api/billing/checkout', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({tier, space_id, email})
+      });
+      const data = await resp.json();
+      resEl.style.display = 'block';
+      if (data && data.ok) {
+        const mailSubject = encodeURIComponent('LINC Loci Space Provisioning: ' + data.plan.label);
+        const mailBody = encodeURIComponent('Operator email: ' + email + '\\nTier: ' + data.tier + '\\nSpace ID: ' + data.space_id);
+        resEl.innerHTML = '<div style="color:var(--green);font-weight:700;margin-bottom:6px">✓ Plan Reserved: ' + data.plan.label + '</div>' +
+          '<div style="color:var(--muted);margin-bottom:8px">Reference URL: <code>' + data.checkout_url + '</code></div>' +
+          '<a href="mailto:faust@lincinnovations.com?subject=' + mailSubject + '&body=' + mailBody + '" style="display:inline-block;padding:6px 10px;background:var(--panel);border:1px solid var(--accent);border-radius:4px;color:var(--accent)">Send Instant Provisioning Request →</a>';
+      } else {
+        resEl.textContent = 'Unable to reserve checkout session. Please try again.';
+      }
+    });
+  </script>
+</body></html>"""
     return HTMLResponse(html_body)
 
 
 @mcp.custom_route("/", methods=["GET"])
 async def landing_console_route(request: Request[State]) -> Response:
-    root = _base_url(request)
-    page = f"""<!doctype html><html><head><meta charset="utf-8"><title>LINC Loci (0xL0C1) — Multi-Tenant Physical Memory Cloud</title>
-    <style>body{{background:#0b0d10;color:#e6edf3;font:14px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;max-width:1080px;margin:0 auto;padding:32px;}}
-    .card{{background:#13171d;border:1px solid #222933;border-radius:8px;padding:20px;margin-bottom:20px;}}
-    table{{width:100%;border-collapse:collapse;}} th,td{{text-align:left;padding:10px;border-bottom:1px solid #222933;}}
-    a{{color:#58a6ff;text-decoration:none;}} code{{color:#58a6ff;background:#0b0d10;padding:2px 6px;border-radius:4px;}}</style></head>
-    <body>
-    <h1>0xL0C1 · LINC Loci Cloud Console</h1>
-    <p>Memory lives on the physical object, not the app. Multi-tenant MCP server on Google Cloud Run + Cloud SQL PostgreSQL 16 (RLS) + Vertex AI.</p>
-    <div class="card">
-      <h3>Your Space</h3>
-      <p>Spaces are private. Open yours at its capability URL (<code>/loci-&lt;space_token&gt;/</code>), or
-      <a href="/oauth/authorize">connect an assistant with OAuth 2.1</a> using the Space's access token.
-      · <a href="/pricing">Plans &amp; Tag Kits</a></p>
-    </div>
-    <div class="card">
-      <h3>OAuth 2.1 &amp; MCP Connector Endpoints</h3>
-      <p>OAuth 2.1 Discovery: <code>{html.escape(root)}/.well-known/oauth-authorization-server</code></p>
-      <p>OAuth 2.1 MCP Endpoint: <code>{html.escape(root)}/mcp</code> · <a href="/pricing">Pricing &amp; Tiers</a></p>
-    </div>
-    </body></html>"""
+    root = html.escape(_base_url(request))
+    page = """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LINC Loci (0xL0C1) — Zero-Pixel Physical Memory MCP Cloud</title>
+<style>
+  :root {
+    --bg: #080a0e; --panel: #10141b; --panel-2: #151b24; --border: #212936;
+    --border-hi: #303c4f; --fg: #e6edf3; --muted: #8b949e; --accent: #58a6ff;
+    --green: #3fb950; --amber: #d29922;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code { color: var(--accent); background: var(--bg); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border); font-size: 12px; }
+  .topbar { display: flex; align-items: center; justify-content: space-between; padding: 14px 28px; border-bottom: 1px solid var(--border); background: #0b0e14; flex-wrap: wrap; gap: 12px; position: sticky; top: 0; z-index: 30; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; color: var(--fg); text-decoration: none; }
+  .brand-hex { padding: 3px 8px; border-radius: 4px; background: rgba(88,166,255,0.12); border: 1px solid rgba(88,166,255,0.35); color: var(--accent); font-size: 12px; }
+  .nav-links { display: flex; align-items: center; gap: 18px; font-size: 12px; flex-wrap: wrap; }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 32px 28px 64px; }
+  .hero { display: grid; grid-template-columns: 1.35fr 1fr; gap: 24px; align-items: stretch; margin-bottom: 28px; }
+  @media (max-width: 960px) { .hero { grid-template-columns: 1fr; } }
+  .hero-main { background: linear-gradient(160deg, #10151f 0%, #0b0e14 100%); border: 1px solid var(--border); border-radius: 12px; padding: 30px; display: flex; flex-direction: column; justify-content: space-between; }
+  .eyebrow { display: inline-flex; align-items: center; gap: 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--green); background: rgba(63,185,80,0.1); border: 1px solid rgba(63,185,80,0.32); padding: 4px 10px; border-radius: 999px; width: fit-content; margin-bottom: 14px; }
+  h1 { margin: 0 0 12px; font-size: 30px; line-height: 1.2; letter-spacing: -0.02em; }
+  .hero-sub { color: var(--muted); font-size: 14px; margin: 0 0 20px; max-width: 680px; }
+  .cta-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 9px 15px; border-radius: 6px; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; text-decoration: none; border: 1px solid var(--border); background: var(--panel-2); color: var(--fg); }
+  .btn.primary { background: var(--accent); color: #06080c; border-color: var(--accent); }
+  .btn:hover { text-decoration: none; filter: brightness(1.08); }
+  .hero-side { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 24px; display: flex; flex-direction: column; justify-content: space-between; gap: 14px; }
+  .invariants { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 32px; }
+  @media (max-width: 900px) { .invariants { grid-template-columns: 1fr; } }
+  .inv-card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }
+  .inv-num { font-size: 11px; color: var(--accent); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; font-weight: 700; }
+  .inv-card h3 { margin: 0 0 6px; font-size: 14px; }
+  .inv-card p { margin: 0; color: var(--muted); font-size: 12px; }
+  .section-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
+  .section-head h2 { margin: 0; font-size: 18px; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+  .tab-btn { padding: 7px 13px; border-radius: 6px; border: 1px solid var(--border); background: var(--panel); color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
+  .tab-btn.active { background: rgba(88,166,255,0.14); border-color: var(--accent); color: var(--fg); font-weight: 700; }
+  .showcase-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 16px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 12px; font-size: 12px; }
+  .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 36px; }
+  @media (max-width: 1024px) { .grid-4 { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 600px) { .grid-4 { grid-template-columns: 1fr; } }
+  .col { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px; min-height: 320px; }
+  .col h3 { margin: 0 0 10px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); display: flex; justify-content: space-between; }
+  .item { padding: 10px; border-radius: 6px; background: var(--panel-2); border: 1px solid var(--border); margin-bottom: 8px; cursor: pointer; }
+  .item:hover { border-color: var(--border-hi); }
+  .item.selected { border-color: var(--accent); background: rgba(88,166,255,0.08); }
+  .tag-badge { display: inline-block; padding: 1px 6px; border-radius: 4px; background: #fff; color: #090c10; font-weight: 800; font-size: 11px; margin-left: 6px; }
+  .meta { color: var(--muted); font-size: 11px; margin-top: 4px; }
+  .cursor-box { margin-top: 6px; padding: 5px 8px; border-radius: 4px; background: rgba(210,153,34,0.12); border-left: 2px solid var(--amber); color: var(--amber); font-size: 11px; }
+  .connect-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 860px) { .connect-grid { grid-template-columns: 1fr; } }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 22px; }
+  .card h3 { margin: 0 0 8px; font-size: 15px; }
+  .copy-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 10px; overflow-x: auto; }
+</style></head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/"><span class="brand-hex">0xL0C1</span><span>LINC Loci · Physical Memory Cloud</span></a>
+    <nav class="nav-links">
+      <a href="#showcase">Interactive Showcase</a>
+      <a href="#connect">Your Space &amp; OAuth 2.1</a>
+      <a href="/pricing">Plans &amp; Tag Kits</a>
+      <a href="/labels-sample.svg" target="_blank" rel="noopener">Sample SVG Tags</a>
+      <a href="https://github.com/LincForge/0xl0c1" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://lincinnovations.com" target="_blank" rel="noopener">LINC Innovations</a>
+    </nav>
+  </header>
+
+  <main class="wrap">
+    <section class="hero">
+      <div class="hero-main">
+        <div>
+          <div class="eyebrow">● Live · Cloud Run · Cloud SQL Postgres 16 (RLS) · Vertex AI 768-D</div>
+          <h1>Memory lives on the physical object, not the app.</h1>
+          <p class="hero-sub">Point Claude, ChatGPT, or Gemini at a pipe valve, bench instrument, or match rifle turret. LINC Loci resolves the physical object in under 200ms and recalls verified technician lessons, torque specs, and the active next-step cursor—without sending a single camera pixel to the server.</p>
+        </div>
+        <div class="cta-row">
+          <a class="btn primary" href="#showcase">Explore Live Showcase Console</a>
+          <a class="btn" href="#connect">Open Your Private Space</a>
+          <a class="btn" href="/pricing">Pricing &amp; Field-Service Tiers</a>
+          <a class="btn" href="/labels-sample.svg" target="_blank" rel="noopener">Print Sample 0xL0C1 Tags (SVG)</a>
+        </div>
+      </div>
+
+      <div class="hero-side">
+        <div>
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--accent);font-weight:700;margin-bottom:6px">Zero-Pixel Privacy Guarantee</div>
+          <p style="margin:0 0 12px;color:var(--muted);font-size:12px">Your assistant's VLM extracts structured text descriptors locally in-session (`canonical_class`, `material`, `mounting`, `visible_verbatim_text`, `visible_tag_code`). The Loci MCP server never accepts or stores raw photos or video frames.</p>
+        </div>
+        <div style="padding:12px;border-radius:8px;background:var(--bg);border:1px solid var(--border)">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:6px">MCP Tool Surface (4 primitives):</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px">
+            <div><code>observe(...)</code> <span style="color:var(--muted)">bind/match</span></div>
+            <div><code>ask(...)</code> <span style="color:var(--muted)">recall + cursor</span></div>
+            <div><code>commit(...)</code> <span style="color:var(--muted)">save=True gate</span></div>
+            <div><code>list_spaces()</code> <span style="color:var(--muted)">tenant scope</span></div>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--muted)">
+          <span>1st Place · AI Tinkerers Seattle / Google Cloud MCP</span>
+          <a href="https://youtu.be/8cofScK6Q_o" target="_blank" rel="noopener">Watch 3-Model Demo →</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="invariants">
+      <div class="inv-card">
+        <div class="inv-num">01 · Zero-Pixel Perception &amp; Mod-30 Visual Base32 Tags</div>
+        <h3>20-Char Homoglyph-Free Short Codes</h3>
+        <p>Optional <code>XX-XC</code> visual tags use <code>23456789CFGHJMPQRVWX</code> with a deterministic Mod-30 check character so frontier VLMs read them from across a mechanical room without QR scanners.</p>
+      </div>
+      <div class="inv-card">
+        <div class="inv-num">02 · Multi-Tenant Cloud SQL Postgres 16 RLS + Vertex AI</div>
+        <h3>Per-Transaction Tenant Isolation &amp; Hybrid RRF</h3>
+        <p>Every Space transaction binds <code>SET LOCAL app.current_space_id</code> under <code>FORCE ROW LEVEL SECURITY</code>, pairing exact tag/trigram lookup with 768-d <code>text-embedding-004</code> vectors.</p>
+      </div>
+      <div class="inv-card">
+        <div class="inv-num">03 · Honest Confirm Band &amp; Explicit Write Gate</div>
+        <h3>No Silent Guesses, No Unapproved Writes</h3>
+        <p>Scores in the <code>0.50–0.85</code> band return candidates + disambiguating questions. <code>commit(save=False)</code> previews structured claims before writing to the object's memory graph.</p>
+      </div>
+    </section>
+
+    <section id="showcase">
+      <div class="section-head">
+        <div>
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--accent);font-weight:700">Interactive Read-Only Preview</div>
+          <h2>Live Space Console Showcase</h2>
+        </div>
+        <div class="tabs" role="tablist">
+          <button type="button" class="tab-btn active" data-scenario="commercial">Commercial Mechanical &amp; Plumbing Handoff</button>
+          <button type="button" class="tab-btn" data-scenario="bench">LINC Hardware Bench</button>
+          <button type="button" class="tab-btn" data-scenario="sniperpulse">SniperPulse NRL22 Match Kit</button>
+        </div>
+      </div>
+
+      <div class="showcase-bar">
+        <div id="sc-summary">Space: <strong>Commercial Mechanical &amp; Plumbing Handoff</strong> · Tier: <code>TEAM</code> · Cross-Shift Handoffs: <strong>2</strong></div>
+        <div style="display:flex;gap:10px;align-items:center">
+          <span style="color:var(--muted)">Click any Place, Object, or Lesson below to filter the graph</span>
+          <button type="button" id="sc-reset" style="padding:3px 8px;border-radius:4px;border:1px solid var(--border);background:var(--panel-2);color:var(--fg);font:inherit;font-size:11px;cursor:pointer;display:none">Clear Filter ✕</button>
+        </div>
+      </div>
+
+      <div class="grid-4">
+        <div class="col"><h3><span>Places</span><span id="sc-places-n">0</span></h3><div id="sc-places"></div></div>
+        <div class="col"><h3><span>Objects</span><span id="sc-objects-n">0</span></h3><div id="sc-objects"></div></div>
+        <div class="col"><h3><span>Lessons &amp; Handoffs</span><span id="sc-lessons-n">0</span></h3><div id="sc-lessons"></div></div>
+        <div class="col"><h3><span>Verified Claims</span><span id="sc-claims-n">0</span></h3><div id="sc-claims"></div></div>
+      </div>
+    </section>
+
+    <section id="connect" class="connect-grid">
+      <div class="card">
+        <h3>Your Space · Open Private Console</h3>
+        <p style="color:var(--muted);font-size:12px;margin:0 0 14px">Spaces are private and never listed publicly. Paste your Space capability token (or open your <code>/loci-&lt;space_token&gt;/</code> URL) to launch your live Space viewer or print your Space's SVG tag sheet.</p>
+        <form id="space-jump-form" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+          <input id="space-jump-input" type="password" placeholder="Paste Space capability token..." autocomplete="off" required style="flex:1;min-width:200px;padding:9px 12px;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:6px;font:inherit">
+          <button type="submit" class="btn primary">Open Space Console →</button>
+        </form>
+        <p style="color:var(--muted);font-size:12px;margin:0">Or <a href="/oauth/authorize">connect an assistant with OAuth 2.1</a> using your Space's access token · <a href="/pricing">Plans &amp; Tag Kits</a></p>
+      </div>
+
+      <div class="card">
+        <h3>OAuth 2.1 &amp; MCP Connector Endpoints</h3>
+        <p style="color:var(--muted);font-size:12px;margin:0 0 10px">Add LINC Loci as a remote MCP server in Claude Desktop/Web, ChatGPT Developer Mode, or Gemini CLI:</p>
+        <div class="copy-row">
+          <span>MCP Endpoint: <code id="mcp-ep">__ROOT__/mcp</code></span>
+          <button type="button" class="btn" data-copy="__ROOT__/mcp" style="padding:4px 10px;font-size:11px">Copy</button>
+        </div>
+        <div class="copy-row">
+          <span>OAuth 2.1 Discovery: <code>__ROOT__/.well-known/oauth-authorization-server</code></span>
+          <button type="button" class="btn" data-copy="__ROOT__/.well-known/oauth-authorization-server" style="padding:4px 10px;font-size:11px">Copy</button>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:8px">
+          Supports RFC 7591 Dynamic Client Registration (signed stateless <code>client_id</code>), S256 PKCE, and direct capability-path MCP (<code>__ROOT__/loci-&lt;space_token&gt;/mcp</code>) · <a href="/pricing">Pricing &amp; Tiers</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const SHOWCASE = {
+      commercial: {
+        name: "Commercial Mechanical & Plumbing Handoff",
+        tier: "TEAM",
+        handoffs: 2,
+        places: [
+          {id: "p1", label: "Bldg B Mechanical Room", path: "Pacific Mechanical / Bldg B / Basement Riser"},
+          {id: "p2", label: "Roof Chiller Pad East", path: "Pacific Mechanical / Bldg B / Roof"}
+        ],
+        objects: [
+          {id: "o1", place: "Bldg B Mechanical Room", label: "Chilled Water Isolation Valve #4", tag_code: "CM-7K", canonical_class: "isolation_valve", material: "metal_chrome_or_steel", mounting: "wall_mounted", verbatim_text: "BG-CW-ISO-04 150-PSI"},
+          {id: "o2", place: "Roof Chiller Pad East", label: "Grundfos Magna3 Circulator Pump B2", tag_code: "CM-3P", canonical_class: "circulator_pump", material: "metal_matte_black", mounting: "freestanding_floor", verbatim_text: "GRUNDFOS MAGNA3 65-120"}
+        ],
+        lessons: [
+          {id: "l1", object_id: "o1", object: "Chilled Water Isolation Valve #4", title: "Shift 2 packing gland repacked & strainer cleared", author_subject: "tech.shift2@pacificmech.example", next_question: "Recheck flange drip tray on Monday PM rounds", is_cursor_active: true},
+          {id: "l2", object_id: "o1", object: "Chilled Water Isolation Valve #4", title: "Stem binding at 70% travel during isolation", author_subject: "tech.shift1@pacificmech.example", next_question: "Inspect stem packing gland after shift 2 strainer blowdown", is_cursor_active: false},
+          {id: "l3", object_id: "o2", object: "Grundfos Magna3 Circulator Pump B2", title: "AUTOADAPT curve & E72 air-lock purge", author_subject: "tech.shift1@pacificmech.example", next_question: "", is_cursor_active: false}
+        ],
+        claims: [
+          {id: "c1", lesson_id: "l1", text: "Repacked gland with PTFE braided ring; differential pressure across strainer dropped from 8.1 to 2.4 PSI", confidence: "verified", status: "active"},
+          {id: "c2", lesson_id: "l2", text: "Valve stem binds at 70% closed travel; back off 1/4 turn before applying torque (max 35 ft-lb)", confidence: "verified", status: "active"},
+          {id: "c3", lesson_id: "l3", text: "Run in AUTOADAPT proportional pressure mode; bleed top volute vent screw for 15s if fault E72 appears", confidence: "verified", status: "active"}
+        ]
+      },
+      bench: {
+        name: "LINC Hardware Bench",
+        tier: "TEAM",
+        handoffs: 2,
+        places: [
+          {id: "p3", label: "Test Phone Bench", path: "LINC Lab / Bench A / USB-C Array"},
+          {id: "p4", label: "Soldering & PCB Station", path: "LINC Lab / Bench B / Power Rail"}
+        ],
+        objects: [
+          {id: "o3", place: "Test Phone Bench", label: "Pixel 6a Debug Phone #2", tag_code: "LC-4M", canonical_class: "debug_phone", material: "glass", mounting: "tabletop_or_counter", verbatim_text: "adb-serial-28191FDF6004 PIXEL-6A"},
+          {id: "o4", place: "Soldering & PCB Station", label: "Rigol DP832 Bench Power Supply", tag_code: "LC-9W", canonical_class: "power_supply", material: "metal_chrome_or_steel", mounting: "tabletop_or_counter", verbatim_text: "RIGOL DP832 CH1-3V8-2A1"}
+        ],
+        lessons: [
+          {id: "l4", object_id: "o3", object: "Pixel 6a Debug Phone #2", title: "USB-C orientation & hub port binding", author_subject: "faust@lincinnovations.com", next_question: "Verify battery temperature after 48h continuous scrcpy capture", is_cursor_active: true},
+          {id: "l5", object_id: "o4", object: "Rigol DP832 Bench Power Supply", title: "LiPo harness current limit safety lock", author_subject: "bench-ops@lincinnovations.com", next_question: "", is_cursor_active: false}
+        ],
+        claims: [
+          {id: "c4", lesson_id: "l4", text: "USB-C port negotiates stable data only when cable is inserted label-side up on Anker port #3", confidence: "verified", status: "active"},
+          {id: "c5", lesson_id: "l5", text: "Channel 1 overcurrent protection locked at 2.1A at 3.80V for bare cell harness testing", confidence: "verified", status: "active"}
+        ]
+      },
+      sniperpulse: {
+        name: "SniperPulse NRL22 Match Kit",
+        tier: "PRO",
+        handoffs: 1,
+        places: [
+          {id: "p5", label: "Pelican 1750 Rifle Case", path: "Match Kit / Primary Optic Bay"},
+          {id: "p6", label: "Chronograph & Weather Pouch", path: "Match Kit / Accessory Bay"}
+        ],
+        objects: [
+          {id: "o5", place: "Pelican 1750 Rifle Case", label: "CZ 457 MTR Match Rifle Optic Turret", tag_code: "SP-8R", canonical_class: "rifle_optic", material: "metal_matte_black", mounting: "recessed_or_built_in", verbatim_text: "CZ-457-MTR LOT-SK-RM-2026-04"},
+          {id: "o6", place: "Chronograph & Weather Pouch", label: "Garmin Xero C1 Pro Chronograph", tag_code: "SP-5C", canonical_class: "chronograph", material: "plastic_molded", mounting: "tabletop_or_counter", verbatim_text: "GARMIN XERO C1 PRO FW-3.22"}
+        ],
+        lessons: [
+          {id: "l6", object_id: "o5", object: "CZ 457 MTR Match Rifle Optic Turret", title: "50 yd zero & 100 yd cold-bore come-up", author_subject: "andrey@sniperpulse.com", next_question: "Confirm cold-bore shift at 38F morning stage", is_cursor_active: true},
+          {id: "l7", object_id: "o6", object: "Garmin Xero C1 Pro Chronograph", title: "Suppressed rimfire trigger sensitivity setting", author_subject: "andrey@sniperpulse.com", next_question: "", is_cursor_active: false}
+        ],
+        claims: [
+          {id: "c6", lesson_id: "l6", text: "Zeroed at 50 yd with SK Rifle Match Lot #2026-04 (MV 1072 fps at 54F); 100 yd come-up is +1.9 MIL", confidence: "verified", status: "active"},
+          {id: "c7", lesson_id: "l7", text: "Set Rimfire sensitivity to High and mount 5 inches aft of suppressor endcap", confidence: "verified", status: "active"}
+        ]
+      }
+    };
+
+    let currentKey = 'commercial';
+    let filterPlace = null;
+    let filterObj = null;
+    let filterLesson = null;
+
+    function renderShowcase() {
+      const sc = SHOWCASE[currentKey];
+      document.getElementById('sc-summary').innerHTML =
+        'Space: <strong>' + sc.name + '</strong> · Tier: <code>' + sc.tier + '</code> · Cross-Shift / Operator Handoffs: <strong>' + sc.handoffs + '</strong>';
+      const resetBtn = document.getElementById('sc-reset');
+      resetBtn.style.display = (filterPlace || filterObj || filterLesson) ? 'inline-block' : 'none';
+
+      const objs = sc.objects.filter(o => (!filterPlace || o.place === filterPlace) && (!filterObj || o.id === filterObj));
+      const objIds = new Set(objs.map(o => o.id));
+      const lessons = sc.lessons.filter(l => objIds.has(l.object_id) && (!filterLesson || l.id === filterLesson));
+      const lessonIds = new Set(lessons.map(l => l.id));
+      const claims = sc.claims.filter(c => lessonIds.has(c.lesson_id));
+
+      document.getElementById('sc-places-n').textContent = sc.places.length;
+      document.getElementById('sc-objects-n').textContent = objs.length;
+      document.getElementById('sc-lessons-n').textContent = lessons.length;
+      document.getElementById('sc-claims-n').textContent = claims.length;
+
+      document.getElementById('sc-places').innerHTML = sc.places.map(p =>
+        '<div class="item ' + (filterPlace === p.label ? 'selected' : '') + '" data-place="' + p.label + '">' +
+        '<strong>' + p.label + '</strong><div class="meta">' + p.path + '</div></div>'
+      ).join('');
+
+      document.getElementById('sc-objects').innerHTML = objs.map(o =>
+        '<div class="item ' + (filterObj === o.id ? 'selected' : '') + '" data-obj="' + o.id + '">' +
+        '<strong>' + o.label + '</strong><span class="tag-badge">[' + o.tag_code + ']</span>' +
+        '<div class="meta">' + o.place + ' · ' + o.canonical_class + '</div>' +
+        '<div class="meta">verbatim: <code>' + o.verbatim_text + '</code></div></div>'
+      ).join('');
+
+      document.getElementById('sc-lessons').innerHTML = lessons.map(l =>
+        '<div class="item ' + (filterLesson === l.id ? 'selected' : '') + '" data-lesson="' + l.id + '">' +
+        '<strong>' + l.title + '</strong>' +
+        '<div class="meta">' + l.object + ' · by ' + l.author_subject + '</div>' +
+        (l.next_question ? '<div class="cursor-box">↳ Active Cursor: ' + l.next_question + '</div>' : '') +
+        '</div>'
+      ).join('');
+
+      document.getElementById('sc-claims').innerHTML = claims.map(c =>
+        '<div class="item" style="cursor:default">' + c.text +
+        '<div class="meta">confidence: <strong style="color:var(--green)">' + c.confidence + '</strong> · ' + c.status + '</div></div>'
+      ).join('');
+
+      document.querySelectorAll('#sc-places .item').forEach(el => {
+        el.addEventListener('click', () => {
+          const pl = el.getAttribute('data-place');
+          filterPlace = (filterPlace === pl) ? null : pl;
+          filterObj = null; filterLesson = null;
+          renderShowcase();
+        });
+      });
+      document.querySelectorAll('#sc-objects .item').forEach(el => {
+        el.addEventListener('click', () => {
+          const oid = el.getAttribute('data-obj');
+          filterObj = (filterObj === oid) ? null : oid;
+          filterLesson = null;
+          renderShowcase();
+        });
+      });
+      document.querySelectorAll('#sc-lessons .item').forEach(el => {
+        el.addEventListener('click', () => {
+          const lid = el.getAttribute('data-lesson');
+          filterLesson = (filterLesson === lid) ? null : lid;
+          renderShowcase();
+        });
+      });
+    }
+
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentKey = btn.getAttribute('data-scenario') || 'commercial';
+        filterPlace = null; filterObj = null; filterLesson = null;
+        renderShowcase();
+      });
+    });
+
+    document.getElementById('sc-reset').addEventListener('click', () => {
+      filterPlace = null; filterObj = null; filterLesson = null;
+      renderShowcase();
+    });
+
+    document.getElementById('space-jump-form').addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      let raw = document.getElementById('space-jump-input').value.trim();
+      if (!raw) return;
+      const m = raw.match(new RegExp('/loci-([^/?#]+)'));
+      const tok = m ? m[1] : raw.replace(/^loci-/, '');
+      window.location.href = '/loci-' + encodeURIComponent(tok) + '/';
+    });
+
+    document.querySelectorAll('button[data-copy]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const val = btn.getAttribute('data-copy') || '';
+        try {
+          await navigator.clipboard.writeText(val);
+          const prev = btn.textContent;
+          btn.textContent = 'Copied ✓';
+          setTimeout(() => { btn.textContent = prev; }, 1600);
+        } catch (_) {}
+      });
+    });
+
+    renderShowcase();
+  </script>
+</body></html>""".replace("__ROOT__", root)
     return HTMLResponse(page)
 
 

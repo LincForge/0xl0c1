@@ -372,3 +372,46 @@ def test_oauth21_and_web_console_http_endpoints(live_server: str) -> None:
     seed2 = httpx.post(f"{server}/loci-root-token/api/seed")
     assert seed2.status_code == 200
     assert all(s["seeded_new"] is False for s in seed2.json()["spaces"])
+
+
+def test_landing_pricing_and_sample_svg_surfaces(live_server: str) -> None:
+    landing = httpx.get(f"{live_server}/")
+    assert landing.status_code == 200
+    body = landing.text
+    assert (
+        "Commercial Mechanical &amp; Plumbing Handoff" in body
+        or "Commercial Mechanical" in body
+    )
+    assert "LINC Hardware Bench" in body
+    assert "SniperPulse NRL22 Match Kit" in body
+    assert "/labels-sample.svg" in body
+    assert "Zero-Pixel" in body
+
+    sample_svg = httpx.get(f"{live_server}/labels-sample.svg")
+    assert sample_svg.status_code == 200
+    assert "image/svg+xml" in sample_svg.headers.get("content-type", "")
+    assert sample_svg.text.startswith("<svg")
+    assert "0xL0C1 PHYSICAL MEMORY TAGS" in sample_svg.text
+
+    pricing = httpx.get(f"{live_server}/pricing")
+    assert pricing.status_code == 200
+    p_text = pricing.text
+    assert "Field Service" in p_text
+    assert '<a class="btn" href="/">Start Free</a>' not in p_text
+    assert "<dialog" in p_text
+    assert "overscroll-behavior: contain" in p_text
+
+    viewer = httpx.get(f"{live_server}/loci-root-token/")
+    assert viewer.status_code == 200
+    assert "copy-mcp-btn" in viewer.text
+    assert "filter-input" in viewer.text
+
+
+def test_docs_reflect_live_gcp_stack_and_domain() -> None:
+    readme = (ROOT / "README.md").read_text()
+    assert "https://loci.lincinnovations.com/mcp" in readme
+    assert "The live stack is **AWS App Runner" not in readme
+
+    roadmap = (ROOT / "docs" / "ROADMAP.md").read_text()
+    assert "loci.lincinnovations.com" in roadmap
+    assert "The three Loci tools still return `not_implemented`" not in roadmap
