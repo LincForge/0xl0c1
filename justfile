@@ -79,7 +79,7 @@ deploy-aws:
 # Build, push, and deploy LINC Loci to Google Cloud Run (loci-0xl0c1) with Cloud SQL + Vertex AI.
 deploy-gcp:
     gcloud auth print-access-token | docker login -u oauth2accesstoken --password-stdin https://us-west1-docker.pkg.dev
-    docker build --platform linux/amd64 --tag us-west1-docker.pkg.dev/loci-0xl0c1/loci/0xl0c1:latest --file Dockerfile .
+    docker build --pull --no-cache --platform linux/amd64 --tag us-west1-docker.pkg.dev/loci-0xl0c1/loci/0xl0c1:latest --file Dockerfile .
     docker push us-west1-docker.pkg.dev/loci-0xl0c1/loci/0xl0c1:latest
     gcloud run deploy loci \
         --project=loci-0xl0c1 \
