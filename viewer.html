@@ -3,82 +3,511 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>LINC Loci (0xL0C1) — Physical-World Memory Platform</title>
+<title>LINC Loci (0xL0C1) — Space Telemetry &amp; Spatial Memory Console</title>
 <style>
-  :root { --bg:#0b0d10; --card:#13171d; --line:#222933; --fg:#e6edf3; --muted:#7d8590; --accent:#58a6ff; --ok:#3fb950; --warn:#d29922; }
-  * { box-sizing:border-box; }
-  body { margin:0; padding:24px; background:var(--bg); color:var(--fg); font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; max-width:1280px; margin-inline:auto; }
-  header { display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:16px; border-bottom:1px solid var(--line); padding-bottom:14px; margin-bottom:20px; }
-  h1 { font-size:18px; margin:0; letter-spacing:.04em; }
-  h1 span { color:var(--muted); font-weight:400; font-size:13px; margin-left:10px; }
-  .actions { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
-  .btn { display:inline-block; padding:6px 12px; border-radius:6px; border:1px solid var(--line); background:var(--card); color:var(--fg); text-decoration:none; font-size:12px; cursor:pointer; }
-  .btn-primary { border-color:var(--accent); color:var(--accent); }
-  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--ok); margin-right:6px; }
-  .banner { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:14px 16px; margin-bottom:18px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; }
-  .banner code { color:var(--accent); background:#0b0d10; padding:4px 8px; border-radius:4px; border:1px solid var(--line); }
-  .grid { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; }
-  @media (max-width:960px) { .grid { grid-template-columns:repeat(2,1fr); } }
-  @media (max-width:560px) { .grid { grid-template-columns:1fr; } }
-  section { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:14px; min-height:380px; }
-  h2 { font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin:0 0 12px; display:flex; justify-content:space-between; }
-  .row { border-top:1px solid var(--line); padding:10px 0; font-size:13px; }
-  .row:first-of-type { border-top:0; }
-  .k { color:var(--accent); font-weight:600; }
-  .sub { color:var(--muted); font-size:12px; margin-top:2px; }
-  .tag { display:inline-block; padding:1px 6px; border:1px solid var(--accent); color:var(--accent); border-radius:4px; font-size:11px; margin-left:6px; }
-  .cursor { color:var(--warn); font-size:12px; margin-top:4px; }
-  .empty { color:var(--muted); font-style:italic; padding-top:8px; }
+  :root {
+    --bg: #090b0e;
+    --bg-elev: #0f1319;
+    --card: #121720;
+    --card-hover: #171e29;
+    --line: #212936;
+    --line-strong: #313d4f;
+    --fg: #e6edf3;
+    --muted: #8b949e;
+    --crimson: #e30613;
+    --accent: #58a6ff;
+    --accent-dim: rgba(88, 166, 255, 0.12);
+    --ok: #3fb950;
+    --ok-dim: rgba(63, 185, 80, 0.14);
+    --warn: #d29922;
+    --warn-dim: rgba(210, 153, 34, 0.14);
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    background-image:
+      radial-gradient(circle at 12% 0%, rgba(227, 6, 19, 0.08), transparent 34%),
+      radial-gradient(circle at 88% 0%, rgba(88, 166, 255, 0.08), transparent 38%);
+    color: var(--fg);
+    font: 14px/1.55 var(--sans);
+    min-height: 100vh;
+  }
+  .shell {
+    max-width: 1360px;
+    margin: 0 auto;
+    padding: 20px 24px 48px;
+  }
+  header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 16px;
+    margin-bottom: 20px;
+  }
+  .brand-wrap {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .brand-mark {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font: 700 13px/1 var(--mono);
+    letter-spacing: 0.08em;
+    color: var(--fg);
+    text-decoration: none;
+    padding: 7px 10px;
+    border-radius: 6px;
+    background: var(--card);
+    border: 1px solid var(--line-strong);
+  }
+  .brand-mark .pip {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    background: var(--crimson);
+  }
+  h1 {
+    font-size: 18px;
+    font-weight: 700;
+    margin: 0;
+    letter-spacing: -0.01em;
+  }
+  .tier-pill {
+    font: 600 11px/1 var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 4px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--accent);
+    background: var(--accent-dim);
+    color: var(--accent);
+  }
+  .actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 13px;
+    border-radius: 6px;
+    border: 1px solid var(--line-strong);
+    background: var(--card);
+    color: var(--fg);
+    text-decoration: none;
+    font: 600 12px/1.2 var(--sans);
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .btn:hover {
+    background: var(--card-hover);
+    border-color: var(--accent);
+  }
+  .btn-primary {
+    border-color: var(--accent);
+    background: var(--accent-dim);
+    color: var(--accent);
+  }
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font: 500 12px/1 var(--mono);
+    color: var(--muted);
+    padding: 6px 10px;
+    border-radius: 6px;
+    background: var(--bg-elev);
+    border: 1px solid var(--line);
+  }
+  .dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--ok);
+    box-shadow: 0 0 8px var(--ok);
+  }
+  .banner {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px 18px;
+    margin-bottom: 18px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 14px;
+  }
+  .mcp-box {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .mcp-label {
+    font: 700 11px/1 var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+  }
+  .banner code {
+    font: 500 12.5px/1.4 var(--mono);
+    color: var(--accent);
+    background: var(--bg);
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+    word-break: break-all;
+  }
+  .toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+  }
+  .search-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 260px;
+  }
+  .filter-input {
+    width: 100%;
+    max-width: 420px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--line-strong);
+    background: var(--bg-elev);
+    color: var(--fg);
+    font: 13px/1.3 var(--sans);
+  }
+  .filter-input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .active-filter {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    font: 600 12px/1 var(--mono);
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: var(--accent-dim);
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    cursor: pointer;
+  }
+  .meta-stats {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    font: 12px/1 var(--mono);
+    color: var(--muted);
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+  }
+  @media (max-width: 1024px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } }
+  section {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px;
+    min-height: 440px;
+    display: flex;
+    flex-direction: column;
+  }
+  h2 {
+    font: 700 11px/1 var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin: 0 0 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  h2 span {
+    background: var(--bg-elev);
+    color: var(--fg);
+    padding: 3px 7px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    font-size: 11px;
+  }
+  .row {
+    border: 1px solid var(--line);
+    background: var(--bg-elev);
+    border-radius: 8px;
+    padding: 11px 12px;
+    margin-bottom: 10px;
+    font-size: 13px;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .row.clickable { cursor: pointer; }
+  .row.clickable:hover { border-color: var(--line-strong); background: var(--card-hover); }
+  .row.selected { border-color: var(--accent); background: var(--accent-dim); }
+  .row-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .k { color: var(--fg); font-weight: 600; }
+  .sub { color: var(--muted); font: 12px/1.4 var(--mono); margin-top: 4px; }
+  .verbatim {
+    display: inline-block;
+    margin-top: 6px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    font: 11.5px/1.3 var(--mono);
+    color: var(--fg);
+  }
+  .tag {
+    display: inline-block;
+    padding: 2px 7px;
+    border: 1px solid var(--accent);
+    background: var(--accent-dim);
+    color: var(--accent);
+    border-radius: 4px;
+    font: 700 11px/1.2 var(--mono);
+    letter-spacing: 0.04em;
+  }
+  .cursor {
+    margin-top: 8px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background: var(--warn-dim);
+    border: 1px solid rgba(210, 153, 34, 0.35);
+    color: var(--warn);
+    font: 600 12px/1.35 var(--mono);
+  }
+  .conf-pill {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font: 600 10.5px/1.3 var(--mono);
+    background: var(--ok-dim);
+    color: var(--ok);
+  }
+  .empty {
+    color: var(--muted);
+    font: italic 13px/1.5 var(--sans);
+    padding: 24px 8px;
+    text-align: center;
+  }
 </style>
 </head>
 <body>
-<header>
-  <h1>0xL0C1 · LINC LOCI <span id="space-title">memory lives on the object, not the app · zero-pixel multi-tenant MCP</span></h1>
-  <div class="actions">
-    <a class="btn btn-primary" id="labels-link" href="labels.svg" target="_blank">Print Visual Base32 Tags (SVG)</a>
-    <a class="btn" href="/pricing">Pricing &amp; Field-Service Tiers</a>
-    <a class="btn" href="/">All Spaces &amp; OAuth 2.1 Setup</a>
-    <div><span class="dot"></span><span id="ts">connecting…</span></div>
+<div class="shell">
+  <header>
+    <div class="brand-wrap">
+      <a class="brand-mark" href="/"><span class="pip"></span>0xL0C1 · LINC LOCI</a>
+      <h1 id="space-title">Physical-World Memory Space</h1>
+      <span class="tier-pill" id="space-tier">multi-tenant rls</span>
+    </div>
+    <div class="actions">
+      <a class="btn btn-primary" id="labels-link" href="labels.svg" target="_blank" rel="noopener">Print Visual Base32 Tags (SVG)</a>
+      <a class="btn" href="/pricing">Plans &amp; Tag Kits</a>
+      <a class="btn" href="/">Overview &amp; OAuth 2.1</a>
+      <div class="status-pill"><span class="dot"></span><span id="ts">connecting…</span></div>
+    </div>
+  </header>
+
+  <div class="banner">
+    <div class="mcp-box">
+      <span class="mcp-label">MCP Connector URL</span>
+      <code id="mcp-url">loading…</code>
+      <button type="button" class="btn" id="copy-mcp-btn">Copy URL</button>
+      <span class="sub" style="margin-top:0;">Attach in Claude (Settings → Connectors) or ChatGPT (Developer Mode → MCP)</span>
+    </div>
+    <div id="space-meta" class="meta-stats"></div>
   </div>
-</header>
-<div class="banner">
-  <div>
-    <strong>MCP Connector URL:</strong> <code id="mcp-url">loading…</code>
-    <span class="sub" style="margin-left:8px;">Attach in Claude (Settings → Connectors) or ChatGPT (Developer Mode → MCP)</span>
+
+  <div class="toolbar">
+    <div class="search-wrap">
+      <input type="search" id="filter-input" class="filter-input" placeholder="Filter places, objects, tag codes (e.g. K9-4B), or lessons…">
+      <button type="button" id="clear-selection-btn" class="active-filter"></button>
+    </div>
+    <div class="meta-stats">Zero-Pixel Guarantee · PostgreSQL 16 FORCE RLS · Click an object to isolate its lessons</div>
   </div>
-  <div id="space-meta" class="sub"></div>
+
+  <div class="grid">
+    <section><h2>Places <span id="n-places">0</span></h2><div id="places"></div></section>
+    <section><h2>Objects <span id="n-objects">0</span></h2><div id="objects"></div></section>
+    <section><h2>Lessons <span id="n-lessons">0</span></h2><div id="lessons"></div></section>
+    <section><h2>Claims <span id="n-claims">0</span></h2><div id="claims"></div></section>
+  </div>
 </div>
-<div class="grid">
-  <section><h2>Places <span id="n-places">0</span></h2><div id="places"></div></section>
-  <section><h2>Objects <span id="n-objects">0</span></h2><div id="objects"></div></section>
-  <section><h2>Lessons <span id="n-lessons">0</span></h2><div id="lessons"></div></section>
-  <section><h2>Claims <span id="n-claims">0</span></h2><div id="claims"></div></section>
-</div>
+
 <script>
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtTag = tc => {
+  const s = String(tc || '').trim();
+  return s.length === 4 && !s.includes('-') ? `${s.slice(0, 2)}-${s.slice(2)}` : s;
+};
 const basePath = location.pathname.replace(/\/$/, '');
-document.getElementById('mcp-url').textContent = `${location.origin}${basePath}/mcp`;
+const mcpFullUrl = `${location.origin}${basePath}/mcp`;
+document.getElementById('mcp-url').textContent = mcpFullUrl;
 document.getElementById('labels-link').href = `${basePath}/labels.svg`;
+
+let latestState = null;
+let selectedObjectLabel = '';
+let selectedPlaceLabel = '';
+
+document.getElementById('copy-mcp-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('copy-mcp-btn');
+  try {
+    await navigator.clipboard.writeText(mcpFullUrl);
+    btn.textContent = 'Copied!';
+    setTimeout(() => { btn.textContent = 'Copy URL'; }, 1600);
+  } catch (_) {
+    btn.textContent = 'Select & Copy';
+  }
+});
+
+document.getElementById('filter-input').addEventListener('input', () => {
+  if (latestState) renderState(latestState);
+});
+
+document.getElementById('clear-selection-btn').addEventListener('click', () => {
+  selectedObjectLabel = '';
+  selectedPlaceLabel = '';
+  if (latestState) renderState(latestState);
+});
+
 function render(el, rows, fn) {
   document.getElementById('n-' + el).textContent = rows.length;
-  document.getElementById(el).innerHTML = rows.length ? rows.map(fn).join('') : '<div class="empty">none yet</div>';
+  document.getElementById(el).innerHTML = rows.length ? rows.map(fn).join('') : '<div class="empty">No matching records in this view</div>';
 }
+
+function renderState(s) {
+  const q = (document.getElementById('filter-input').value || '').trim().toLowerCase();
+  const clearBtn = document.getElementById('clear-selection-btn');
+  if (selectedObjectLabel || selectedPlaceLabel) {
+    clearBtn.style.display = 'inline-flex';
+    clearBtn.textContent = `Filtered: ${selectedObjectLabel || selectedPlaceLabel} ✕`;
+  } else {
+    clearBtn.style.display = 'none';
+  }
+
+  const places = (s.places || []).filter(p => !q || `${p.label} ${p.path}`.toLowerCase().includes(q));
+  const objects = (s.objects || []).filter(o => {
+    if (selectedPlaceLabel && o.place !== selectedPlaceLabel) return false;
+    if (!q) return true;
+    return `${o.label} ${o.place || ''} ${o.tag_code || ''} ${o.verbatim_text || ''} ${o.canonical_class || ''}`.toLowerCase().includes(q);
+  });
+  const allowedObjLabels = new Set(objects.map(o => o.label));
+  const lessons = (s.lessons || []).filter(l => {
+    if (selectedObjectLabel && l.object !== selectedObjectLabel) return false;
+    if (selectedPlaceLabel && !allowedObjLabels.has(l.object)) return false;
+    if (!q) return true;
+    return `${l.title} ${l.object || ''} ${l.author_subject || ''} ${l.next_question || ''}`.toLowerCase().includes(q);
+  });
+  const allowedLessonIds = new Set(lessons.map(l => l.id));
+  const claims = (s.claims || []).filter(c => {
+    if ((selectedObjectLabel || selectedPlaceLabel) && !allowedLessonIds.has(c.lesson_id)) return false;
+    if (!q) return true;
+    return `${c.text} ${c.status || ''}`.toLowerCase().includes(q);
+  });
+
+  render('places', places, p => {
+    const sel = selectedPlaceLabel === p.label ? ' selected' : '';
+    return `<div class="row clickable${sel}" data-place="${esc(p.label)}">
+      <div class="row-head"><div class="k">${esc(p.label)}</div></div>
+      <div class="sub">${esc(p.path)}</div>
+    </div>`;
+  });
+
+  render('objects', objects, o => {
+    const sel = selectedObjectLabel === o.label ? ' selected' : '';
+    const tag = o.tag_code ? `<span class="tag">${esc(fmtTag(o.tag_code))}</span>` : '';
+    const verb = o.verbatim_text ? `<div class="verbatim">“${esc(o.verbatim_text)}”</div>` : '';
+    return `<div class="row clickable${sel}" data-object="${esc(o.label)}">
+      <div class="row-head"><div class="k">${esc(o.label)}</div>${tag}</div>
+      <div class="sub">${esc(o.place || 'unassigned')}${o.canonical_class ? ' · ' + esc(o.canonical_class) : ''}</div>
+      ${verb}
+    </div>`;
+  });
+
+  render('lessons', lessons, l => `
+    <div class="row">
+      <div class="k">${esc(l.title)}</div>
+      <div class="sub">${esc(l.object)}${l.author_subject ? ' · by ' + esc(l.author_subject) : ''}</div>
+      ${l.is_cursor_active && l.next_question ? `<div class="cursor">↳ Active Cursor: ${esc(l.next_question)}</div>` : ''}
+    </div>
+  `);
+
+  render('claims', claims, c => {
+    const conf = c.confidence != null ? `${Math.round(Number(c.confidence) * 100)}%` : '—';
+    return `<div class="row">
+      <div>${esc(c.text)}</div>
+      <div class="sub"><span class="conf-pill">conf ${esc(conf)}</span> · ${esc(c.status)}</div>
+    </div>`;
+  });
+
+  document.querySelectorAll('[data-place]').forEach(el => {
+    el.addEventListener('click', () => {
+      const val = el.getAttribute('data-place') || '';
+      selectedPlaceLabel = selectedPlaceLabel === val ? '' : val;
+      selectedObjectLabel = '';
+      renderState(latestState);
+    });
+  });
+
+  document.querySelectorAll('[data-object]').forEach(el => {
+    el.addEventListener('click', () => {
+      const val = el.getAttribute('data-object') || '';
+      selectedObjectLabel = selectedObjectLabel === val ? '' : val;
+      renderState(latestState);
+    });
+  });
+}
+
 async function tick() {
   try {
     const r = await fetch(`${basePath}/api/state`);
     const s = await r.json();
+    latestState = s;
     if (s.space) {
-      document.getElementById('space-title').textContent = `${s.space.name} (${s.space.tier} tier · ${s.space.slug})`;
-      document.getElementById('space-meta').textContent = `Space ID: ${s.space.id} · Handoffs: ${s.handoff_count ?? 0}`;
+      document.getElementById('space-title').textContent = s.space.name || 'Space Console';
+      document.getElementById('space-tier').textContent = `${s.space.tier || 'free'} tier · ${s.space.slug || s.space.id}`;
+      document.getElementById('space-meta').textContent = `Space ID: ${s.space.id} · Cross-Actor Handoffs: ${s.handoff_count ?? 0}`;
     }
-    render('places', s.places || [], p => `<div class="row"><div class="k">${esc(p.label)}</div><div class="sub">${esc(p.path)}</div></div>`);
-    render('objects', s.objects || [], o => `<div class="row"><div class="k">${esc(o.label)}${o.tag_code ? `<span class="tag">${esc(o.tag_code)}</span>` : ''}</div><div class="sub">${esc(o.place || '')}${o.verbatim_text ? ' · “' + esc(o.verbatim_text) + '”' : ''}</div></div>`);
-    render('lessons', s.lessons || [], l => `<div class="row"><div class="k">${esc(l.title)}</div><div class="sub">${esc(l.object)}${l.author_subject ? ' · by ' + esc(l.author_subject) : ''}</div>${l.is_cursor_active && l.next_question ? `<div class="cursor">↳ next: ${esc(l.next_question)}</div>` : ''}</div>`);
-    render('claims', s.claims || [], c => `<div class="row"><div>${esc(c.text)}</div><div class="sub">${esc(c.status)} · conf ${c.confidence ?? '—'}</div></div>`);
+    renderState(s);
     document.getElementById('ts').textContent = 'live · ' + new Date().toLocaleTimeString();
-  } catch (e) { document.getElementById('ts').textContent = 'reconnecting…'; }
+  } catch (e) {
+    document.getElementById('ts').textContent = 'reconnecting…';
+  }
 }
-tick(); setInterval(tick, 2000);
+tick();
+setInterval(tick, 2500);
 </script>
 </body>
 </html>

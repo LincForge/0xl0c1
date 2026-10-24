@@ -1,23 +1,58 @@
-# Smart Handoff technical roadmap
+# LINC Loci (`0xL0C1`) — Product & Technical Roadmap
 
-## Goal
+## Live Production Status (October 2026)
+
+- **Production Endpoint:** [`https://loci.lincinnovations.com`](https://loci.lincinnovations.com) (`GET /health` → `{"ok": true, "backend": "postgres", "db": "ok"}`)
+- **Cloud Stack:** Google Cloud Run (`loci-0xl0c1`, `us-west1`) + Cloud SQL PostgreSQL 16 (`FORCE ROW LEVEL SECURITY`) + Vertex AI `text-embedding-004` (768-d semantic + trigram/tag RRF recall)
+- **MCP Primitives (Live):** `observe`, `ask`, `commit` (with `save=False` dry-run preview gate), and `list_spaces`
+- **Security & Auth (Hardened):** OAuth 2.1 with mandatory `S256` PKCE, stateless HMAC-signed Dynamic Client Registration (`client_id` binds `redirect_uris`), capability-token proof-of-possession (`/loci-<space_token>/`), and zero public tenant enumeration
+
+---
+
+## Phased Product Roadmap
+
+### Phase 1 — Multi-Tenant Cloud & OAuth 2.1 Hardening (`DONE`)
+- Migrated from single-tenant hackathon prototype to 6-table multi-tenant PostgreSQL 16 schema with `FORCE ROW LEVEL SECURITY` (`app.current_space_id`).
+- Shipped Vertex AI `text-embedding-004` 768-d hybrid RRF matching + 20-char homoglyph-free Mod-30 Visual Base32 tag generator (`/loci-<token>/labels.svg`).
+- Completed 4-part security hardening chain (PRs #2–#5): credential-gated `/api/spaces`, OAuth 2.1 proof-of-possession consent, mandatory `S256` PKCE, and signed stateless DCR `client_id` validation.
+
+### Phase 1.5 — Web Console, Interactive Showcase & Tag Kit Surfaces (`DONE`)
+- Upgraded `/` landing page with interactive read-only multi-scenario Space Showcase (`Commercial Mechanical & Plumbing Handoff`, `LINC Hardware Bench`, `SniperPulse NRL22 Match Kit`), Zero-Pixel Privacy Guarantee callout, and Private Space jump box.
+- Upgraded `/pricing` with interactive `<dialog>` checkout & pilot provisioning modal and `/labels-sample.svg` printable 300-DPI vector tag sheet preview.
+- Upgraded `/loci-<space_token>/` (`viewer.html`) with live search/filter, 1-click Copy MCP URL, cross-tech handoff counter, and amber Active Cursor callouts.
+
+### Phase 2 — 5-Space Field Validation Gate (`ACTIVE` · Target: `2026-11-15`)
+- **Goal:** Validate real-world cross-assistant recall (`Claude` ↔ `ChatGPT` ↔ `Gemini`) across 5 active Spaces (`LINC Hardware Bench`, `Faust Household & Workshop`, `SniperPulse NRL22 Match Kit`, `Commercial Mechanical & Plumbing Handoff`, and 1 external field-service contractor pilot).
+- **Kill Criterion:** `<3` active Spaces or `<20` committed lessons by `2026-11-15` triggers scope freeze before building self-serve billing.
+
+### Phase 3 — v0.2 Self-Serve Space Onboarding & Physical Tag Packs (`NEXT`)
+- Self-serve Space creation flow (magic-link email verification or Stripe Checkout webhook minting a capability token on `/pricing` completion).
+- Fulfill 50x weatherproof UV/oil-resistant `0xL0C1` visual Base32 sticker packs (`$29`) with pre-assigned Space prefixes.
+- Claim superseding UI/tool helpers (`status: superseded` vs `disputed` when a technician updates an outdated torque spec or part number).
+
+### Phase 4 — v0.3 Place-Level Lessons & B2B Field-Service Handoff (`LATER`)
+- Optional `place_id` lessons (site/room lockout procedures not tied to a single object).
+- Team seat management (`membership` table roles: `owner`, `writer`, `viewer`) and shift-handoff digest notifications.
+
+---
+
+## Historical Archive: Hackathon Day vertical slice (2026-09-12)
+
+### Goal
 
 Deliver a working hackathon demo in which one technician records an object-linked repair
 memory and a different technician, on another device and AI, retrieves it the next day,
 resolves an ambiguous match, verifies the recorded part requirement, and finishes the job
 without asking the customer to repeat the story.
 
-The one-hour target is the smallest real vertical slice. CopilotKit, the dispatcher UI, and
-the custom mobile client follow only after that slice is live and recorded.
-
-## Product question
+### Product question
 
 > Can Loci let one field technician leave a trustworthy, object-linked job memory that a
 > different technician—using a different device and AI—can retrieve the next day to confirm
 > the recorded part requirement and finish the repair without making the customer repeat the
 > story?
 
-## System boundaries
+### System boundaries (Hackathon Prototype)
 
 ```mermaid
 flowchart LR
@@ -36,28 +71,9 @@ flowchart LR
 
 - **Loci** owns the public `observe`, `commit`, and `ask` contracts, object matching,
   ambiguity handling, and graph projection.
-- **Ambiguous Sheets** is the preferred sole persistence service. No SQLite or local database
-  is required for the demo.
-- **CopilotKit and AG-UI** provide the dispatcher-facing agent interaction, job context,
+- **Ambiguous Sheets** was used as an optional append-only event log during the hackathon alongside PostgreSQL/SQLite.
+- **CopilotKit and AG-UI** provided the dispatcher-facing agent interaction, job context,
   streaming, tool calls, and rendered handoff states.
-- **Ambiguous Tasks** turns a confirmed handoff into an approved return-visit or part-pickup
-  action. It is not a second memory store.
-- **job-site-memory-mobile** is the eventual technician-owned surface; Claude and ChatGPT
-  mobile connectors remain the reliable MVP surfaces.
-
-## Current state
-
-- The AWS App Runner service, RDS connection, health route, graph-viewer shell, and MCP tool
-  schemas are deployed.
-- The three Loci tools still return `not_implemented`; a green health response is therefore
-  not proof of a working product.
-- `job-site-memory` already has a working CopilotKit runtime, remote Loci MCP configuration,
-  a Loci response mapper, and a server-enforced Ambiguous task approval/read-back flow. Its
-  inherited incident UI still needs to become the Smart Handoff dispatcher.
-- `job-site-memory-mobile` contains useful Loci frontend tools and a commit-preview design,
-  but is still missing its complete app shell and does not currently typecheck.
-- The local environment does not currently contain `AMBIGUOUS_API_KEY`. The operator will
-  provide it when the implementation reaches the live-store gate.
 
 ## Preferred persistence: Ambiguous Sheets
 
