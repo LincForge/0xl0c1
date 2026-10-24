@@ -1,8 +1,9 @@
 FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 UV_COMPILE_BYTECODE=1 LOCI_HOST=0.0.0.0 LOCI_PORT=8130
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
 # Keep this in step with the uv version used to maintain uv.lock.  A release tag,
 # unlike `latest`, makes the toolchain chosen for the image explicit and repeatable.
-COPY --from=ghcr.io/astral-sh/uv:0.12.1 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.13.5 /uv /usr/local/bin/uv
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev
