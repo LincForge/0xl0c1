@@ -21,7 +21,9 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 CALLBACK = "https://claude.ai/api/mcp/auth_callback"
-CLIENT_ID = "loci_client_pkce"  # in-process only; the live server needs a registered one
+CLIENT_ID = (
+    "loci_client_pkce"  # in-process only; the live server needs a registered one
+)
 VERIFIER = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
 CHALLENGE = (
     base64.urlsafe_b64encode(hashlib.sha256(VERIFIER.encode("ascii")).digest())
@@ -32,7 +34,9 @@ CHALLENGE = (
 
 def _new_space(server: str, name: str) -> dict[str, Any]:
     resp = httpx.post(
-        f"{server}/api/spaces", json={"name": name}, headers={"Authorization": "Bearer root-token"}
+        f"{server}/api/spaces",
+        json={"name": name},
+        headers={"Authorization": "Bearer root-token"},
     )
     assert resp.status_code == 201
     body: dict[str, Any] = resp.json()
@@ -96,20 +100,31 @@ BAD_CHALLENGES = {
 }
 
 
-@pytest.mark.parametrize("overrides", list(BAD_CHALLENGES.values()), ids=list(BAD_CHALLENGES))
+@pytest.mark.parametrize(
+    "overrides", list(BAD_CHALLENGES.values()), ids=list(BAD_CHALLENGES)
+)
 def test_contract_authorize_requires_s256_challenge(
     live_server: str, overrides: dict[str, str | None]
 ) -> None:
     sp = _new_space(live_server, "PKCE Authorize")
 
-    page = httpx.get(f"{live_server}/oauth/authorize", params=_params(live_server, **overrides))
+    page = httpx.get(
+        f"{live_server}/oauth/authorize", params=_params(live_server, **overrides)
+    )
     assert page.status_code == 400
     assert "<form" not in page.text
-    assert "S256 PKCE is required" in page.text  # refused for PKCE, not the client binding
+    assert (
+        "S256 PKCE is required" in page.text
+    )  # refused for PKCE, not the client binding
 
     minted = httpx.post(
         f"{live_server}/oauth/authorize",
-        data=_params(live_server, **overrides, space_token=sp["capability_token"], subject="tech@example.com"),
+        data=_params(
+            live_server,
+            **overrides,
+            space_token=sp["capability_token"],
+            subject="tech@example.com",
+        ),
         follow_redirects=False,
     )
     assert minted.status_code == 400
@@ -126,7 +141,9 @@ def test_authorize_accepts_a_well_formed_s256_challenge(live_server: str) -> Non
 
     minted = httpx.post(
         f"{live_server}/oauth/authorize",
-        data=_params(live_server, space_token=sp["capability_token"], subject="tech@example.com"),
+        data=_params(
+            live_server, space_token=sp["capability_token"], subject="tech@example.com"
+        ),
         follow_redirects=False,
     )
     assert minted.status_code == 302
@@ -144,10 +161,24 @@ def server_signing_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.mark.parametrize(
     ("challenge", "method"),
-    [("", "S256"), ("", ""), (VERIFIER, "plain"), (CHALLENGE, "plain"), (CHALLENGE, "s256")],
-    ids=["empty_s256", "empty_empty", "plain_verifier", "plain_challenge", "lowercase_s256"],
+    [
+        ("", "S256"),
+        ("", ""),
+        (VERIFIER, "plain"),
+        (CHALLENGE, "plain"),
+        (CHALLENGE, "s256"),
+    ],
+    ids=[
+        "empty_s256",
+        "empty_empty",
+        "plain_verifier",
+        "plain_challenge",
+        "lowercase_s256",
+    ],
 )
-@pytest.mark.parametrize("verifier", [None, "", VERIFIER], ids=["no_verifier", "empty_verifier", "verifier"])
+@pytest.mark.parametrize(
+    "verifier", [None, "", VERIFIER], ids=["no_verifier", "empty_verifier", "verifier"]
+)
 def test_contract_code_without_challenge_does_not_exchange(
     live_server: str,
     server_signing_env: None,
@@ -169,7 +200,9 @@ def test_contract_code_without_challenge_does_not_exchange(
     _assert_invalid_grant(_token(live_server, code, verifier))
 
 
-def test_a_directly_minted_s256_code_still_exchanges(live_server: str, server_signing_env: None) -> None:
+def test_a_directly_minted_s256_code_still_exchanges(
+    live_server: str, server_signing_env: None
+) -> None:
     """Guards the test above: its codes fail on PKCE, not on a signing-key mismatch."""
     from auth import mint_authorization_code
 
@@ -197,12 +230,18 @@ HOSTILE_VERIFIERS = {
 }
 
 
-@pytest.mark.parametrize("verifier", list(HOSTILE_VERIFIERS.values()), ids=list(HOSTILE_VERIFIERS))
-def test_contract_hostile_verifier_is_invalid_grant(live_server: str, verifier: str) -> None:
+@pytest.mark.parametrize(
+    "verifier", list(HOSTILE_VERIFIERS.values()), ids=list(HOSTILE_VERIFIERS)
+)
+def test_contract_hostile_verifier_is_invalid_grant(
+    live_server: str, verifier: str
+) -> None:
     sp = _new_space(live_server, "PKCE Hostile Verifier")
     minted = httpx.post(
         f"{live_server}/oauth/authorize",
-        data=_params(live_server, space_token=sp["capability_token"], subject="tech@example.com"),
+        data=_params(
+            live_server, space_token=sp["capability_token"], subject="tech@example.com"
+        ),
         follow_redirects=False,
     )
     assert minted.status_code == 302
@@ -228,13 +267,22 @@ def test_contract_exchange_rejects_hostile_verifier_without_raising(
         space_id="sp_x",
         subject="u",
     )
-    assert exchange_authorization_code(
-        code=code, code_verifier=verifier, client_id=CLIENT_ID, redirect_uri=CALLBACK
-    ) is None
+    assert (
+        exchange_authorization_code(
+            code=code,
+            code_verifier=verifier,
+            client_id=CLIENT_ID,
+            redirect_uri=CALLBACK,
+        )
+        is None
+    )
 
 
 def test_metadata_advertises_only_s256(live_server: str) -> None:
-    for path in ("/.well-known/oauth-authorization-server", "/.well-known/openid-configuration"):
+    for path in (
+        "/.well-known/oauth-authorization-server",
+        "/.well-known/openid-configuration",
+    ):
         meta = httpx.get(f"{live_server}{path}")
         assert meta.status_code == 200
         assert meta.json()["code_challenge_methods_supported"] == ["S256"]

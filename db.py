@@ -374,6 +374,44 @@ def get_space_by_id(space_id: str) -> dict[str, Any] | None:
         return _row_dict(row) if row is not None else None
 
 
+def rotate_space_token(
+    space_id: str, new_capability_token: str | None = None
+) -> dict[str, Any] | None:
+    """Mint a fresh capability token for an existing Space and overwrite its stored SHA-256 digest."""
+    init_db()
+    tok = (new_capability_token or new_token(24)).strip()
+    tok_hash = sha256_hex(tok)
+    with tx() as conn:
+        existing = conn.execute(
+            q("SELECT * FROM space WHERE id = ?"), (space_id,)
+        ).fetchone()
+        if existing is None:
+            return None
+        row = _row_dict(existing)
+        conn.execute(
+            q(
+                "UPDATE space SET capability_token = ?, capability_token_hash = ? WHERE id = ?"
+            ),
+            (stored_token_value(tok_hash), tok_hash, space_id),
+        )
+        conn.execute(
+            q(
+                "UPDATE membership SET token_hash = ? WHERE space_id = ? AND role = 'owner'"
+            ),
+            (tok_hash, space_id),
+        )
+    return {
+        "id": space_id,
+        "space_id": space_id,
+        "slug": row["slug"],
+        "name": row["name"],
+        "tier": row["tier"],
+        "tag_prefix": row.get("tag_prefix", ""),
+        "capability_token": tok,
+        "capability_token_hash": tok_hash,
+    }
+
+
 def list_all_spaces() -> list[dict[str, Any]]:
     with tx() as conn:
         rows = conn.execute(

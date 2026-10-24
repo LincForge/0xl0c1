@@ -46,14 +46,18 @@ def _b64u_decode(text: str) -> bytes:
 
 def _new_space(server: str, name: str) -> dict[str, Any]:
     resp = httpx.post(
-        f"{server}/api/spaces", json={"name": name}, headers={"Authorization": "Bearer root-token"}
+        f"{server}/api/spaces",
+        json={"name": name},
+        headers={"Authorization": "Bearer root-token"},
     )
     assert resp.status_code == 201
     body: dict[str, Any] = resp.json()
     return body
 
 
-def _register(server: str, *redirect_uris: str, client_name: str = "Test Connector") -> str:
+def _register(
+    server: str, *redirect_uris: str, client_name: str = "Test Connector"
+) -> str:
     resp = httpx.post(
         f"{server}/oauth/register",
         json={"client_name": client_name, "redirect_uris": list(redirect_uris)},
@@ -64,7 +68,9 @@ def _register(server: str, *redirect_uris: str, client_name: str = "Test Connect
     return client_id
 
 
-def _params(client_id: str, redirect_uri: str = CALLBACK, **extra: str) -> dict[str, str]:
+def _params(
+    client_id: str, redirect_uri: str = CALLBACK, **extra: str
+) -> dict[str, str]:
     return {
         "client_id": client_id,
         "redirect_uri": redirect_uri,
@@ -76,17 +82,25 @@ def _params(client_id: str, redirect_uri: str = CALLBACK, **extra: str) -> dict[
     }
 
 
-def _authorize_post(server: str, client_id: str, redirect_uri: str, space_token: str) -> httpx.Response:
+def _authorize_post(
+    server: str, client_id: str, redirect_uri: str, space_token: str
+) -> httpx.Response:
     return httpx.post(
         f"{server}/oauth/authorize",
-        data=_params(client_id, redirect_uri, space_token=space_token, subject="tech@example.com"),
+        data=_params(
+            client_id, redirect_uri, space_token=space_token, subject="tech@example.com"
+        ),
         follow_redirects=False,
     )
 
 
-def _assert_refused(server: str, client_id: str, redirect_uri: str, space_token: str) -> None:
+def _assert_refused(
+    server: str, client_id: str, redirect_uri: str, space_token: str
+) -> None:
     """GET shows no consent form and POST mints no code: both are a plain HTML 400."""
-    page = httpx.get(f"{server}/oauth/authorize", params=_params(client_id, redirect_uri))
+    page = httpx.get(
+        f"{server}/oauth/authorize", params=_params(client_id, redirect_uri)
+    )
     assert page.status_code == 400, page.text
     assert "<form" not in page.text
 
@@ -117,7 +131,9 @@ def _exchange(server: str, code: str, **fields: str | None) -> httpx.Response:
 
 
 def _assert_invalid_grant(resp: httpx.Response) -> None:
-    assert resp.status_code == 400, resp.status_code  # never print a body that may hold a token
+    assert resp.status_code == 400, (
+        resp.status_code
+    )  # never print a body that may hold a token
     assert resp.json()["error"] == "invalid_grant"
     assert "access_token" not in resp.text
 
@@ -132,15 +148,21 @@ def test_contract_authorize_rejects_unregistered_redirect(live_server: str) -> N
     _assert_refused(live_server, client_id, EVIL, sp["capability_token"])
     # Exact string match: a sibling path or an extra query on the registered host is not it.
     _assert_refused(live_server, client_id, CALLBACK + "/x", sp["capability_token"])
-    _assert_refused(live_server, client_id, CALLBACK + "?next=1", sp["capability_token"])
+    _assert_refused(
+        live_server, client_id, CALLBACK + "?next=1", sp["capability_token"]
+    )
 
     page = httpx.get(f"{live_server}/oauth/authorize", params=_params(client_id))
     assert page.status_code == 200
     assert "<form" in page.text
-    assert _code(live_server, client_id, CALLBACK, sp["capability_token"]).startswith("loci_ac_")
+    assert _code(live_server, client_id, CALLBACK, sp["capability_token"]).startswith(
+        "loci_ac_"
+    )
 
 
-def test_consent_page_shows_the_escaped_client_name_beside_the_host(live_server: str) -> None:
+def test_consent_page_shows_the_escaped_client_name_beside_the_host(
+    live_server: str,
+) -> None:
     client_id = _register(live_server, CALLBACK, client_name="<b>Acme</b> Connector")
     page = httpx.get(f"{live_server}/oauth/authorize", params=_params(client_id))
     assert page.status_code == 200
@@ -159,28 +181,49 @@ BAD_REGISTRATIONS: dict[str, tuple[Any, str]] = {
     "empty_list": ({"redirect_uris": []}, "invalid_redirect_uri"),
     "non_list": ({"redirect_uris": CALLBACK}, "invalid_redirect_uri"),
     "null_list": ({"redirect_uris": None}, "invalid_redirect_uri"),
-    "six_uris": ({"redirect_uris": [f"{CALLBACK}/{i}" for i in range(6)]}, "invalid_redirect_uri"),
-    "http_non_loopback": ({"redirect_uris": ["http://evil.example/cb"]}, "invalid_redirect_uri"),
-    "javascript_uri": ({"redirect_uris": ["javascript:alert(1)"]}, "invalid_redirect_uri"),
+    "six_uris": (
+        {"redirect_uris": [f"{CALLBACK}/{i}" for i in range(6)]},
+        "invalid_redirect_uri",
+    ),
+    "http_non_loopback": (
+        {"redirect_uris": ["http://evil.example/cb"]},
+        "invalid_redirect_uri",
+    ),
+    "javascript_uri": (
+        {"redirect_uris": ["javascript:alert(1)"]},
+        "invalid_redirect_uri",
+    ),
     "600_char_uri": ({"redirect_uris": [_LONG_URI]}, "invalid_redirect_uri"),
     "non_string_entry": ({"redirect_uris": [CALLBACK, 7]}, "invalid_redirect_uri"),
-    "one_bad_among_good": ({"redirect_uris": [CALLBACK, "data:text/html,x"]}, "invalid_redirect_uri"),
+    "one_bad_among_good": (
+        {"redirect_uris": [CALLBACK, "data:text/html,x"]},
+        "invalid_redirect_uri",
+    ),
     "malformed_json": ("{not json", "invalid_client_metadata"),
     "empty_body": ("", "invalid_client_metadata"),
     "array_body": (json.dumps([CALLBACK]), "invalid_client_metadata"),
     "non_utf8_body": (b"\xff\xfe{", "invalid_client_metadata"),
     "deeply_nested_body": ("[" * 100_000 + "]" * 100_000, "invalid_client_metadata"),
-    "non_string_client_name": ({"redirect_uris": [CALLBACK], "client_name": ["x"]}, "invalid_client_metadata"),
+    "non_string_client_name": (
+        {"redirect_uris": [CALLBACK], "client_name": ["x"]},
+        "invalid_client_metadata",
+    ),
 }
 
 
-@pytest.mark.parametrize("body,error", list(BAD_REGISTRATIONS.values()), ids=list(BAD_REGISTRATIONS))
-def test_contract_register_validates_redirect_uris(live_server: str, body: Any, error: str) -> None:
+@pytest.mark.parametrize(
+    "body,error", list(BAD_REGISTRATIONS.values()), ids=list(BAD_REGISTRATIONS)
+)
+def test_contract_register_validates_redirect_uris(
+    live_server: str, body: Any, error: str
+) -> None:
     url = f"{live_server}/oauth/register"
     if isinstance(body, dict):
         resp = httpx.post(url, json=body)
     else:
-        resp = httpx.post(url, content=body, headers={"Content-Type": "application/json"})
+        resp = httpx.post(
+            url, content=body, headers={"Content-Type": "application/json"}
+        )
     assert resp.status_code == 400, resp.text
     out = resp.json()
     assert out["error"] == error
@@ -189,10 +232,18 @@ def test_contract_register_validates_redirect_uris(live_server: str, body: Any, 
 
 
 def test_register_returns_the_validated_registration(live_server: str) -> None:
-    uris = [CALLBACK, "http://127.0.0.1:33418/callback", "https://chatgpt.com/connector/cb"]
+    uris = [
+        CALLBACK,
+        "http://127.0.0.1:33418/callback",
+        "https://chatgpt.com/connector/cb",
+    ]
     resp = httpx.post(
         f"{live_server}/oauth/register",
-        json={"client_name": "N" * 250, "redirect_uris": uris, "extra": {"ignored": True}},
+        json={
+            "client_name": "N" * 250,
+            "redirect_uris": uris,
+            "extra": {"ignored": True},
+        },
     )
     assert resp.status_code == 201, resp.text
     out = resp.json()
@@ -206,7 +257,9 @@ def test_register_returns_the_validated_registration(live_server: str) -> None:
         assert _code(live_server, out["client_id"], uri, sp["capability_token"])
 
 
-def test_register_accepts_a_512_char_uri_and_a_missing_client_name(live_server: str) -> None:
+def test_register_accepts_a_512_char_uri_and_a_missing_client_name(
+    live_server: str,
+) -> None:
     uri = "https://claude.ai/" + "a" * (512 - len("https://claude.ai/"))
     resp = httpx.post(f"{live_server}/oauth/register", json={"redirect_uris": [uri]})
     assert resp.status_code == 201, resp.text
@@ -223,7 +276,9 @@ def _registered_payload(client_id: str) -> bytes:
 
 def _resign(client_id: str, key: bytes) -> str:
     raw = _registered_payload(client_id)
-    return f"loci_client_{_b64u(raw)}.{_b64u(hmac.new(key, raw, hashlib.sha256).digest())}"
+    return (
+        f"loci_client_{_b64u(raw)}.{_b64u(hmac.new(key, raw, hashlib.sha256).digest())}"
+    )
 
 
 def _flip_signature_byte(client_id: str) -> str:
@@ -239,7 +294,9 @@ def test_contract_client_id_is_not_forgeable(live_server: str) -> None:
     client_id = _register(live_server, CALLBACK)
     assert _code(live_server, client_id, CALLBACK, token)  # the genuine one works
 
-    access_key = hashlib.sha256(f"loci-oauth21:{SERVER_SECRET}".encode("utf-8")).digest()
+    access_key = hashlib.sha256(
+        f"loci-oauth21:{SERVER_SECRET}".encode("utf-8")
+    ).digest()
     access_token = httpx.post(
         f"{live_server}/oauth/token",
         data={"grant_type": "client_credentials", "client_secret": token},
@@ -307,7 +364,9 @@ def test_contract_verify_client_id_rejects_a_validly_signed_malformed_payload(
     assert verify_client_id(_signed_client_id(payload)) is None
 
 
-def test_client_id_round_trips_and_is_not_a_code_or_token(server_signing_env: None) -> None:
+def test_client_id_round_trips_and_is_not_a_code_or_token(
+    server_signing_env: None,
+) -> None:
     from auth import (
         exchange_authorization_code,
         mint_client_id,
@@ -319,9 +378,15 @@ def test_client_id_round_trips_and_is_not_a_code_or_token(server_signing_env: No
     assert verify_client_id(client_id) == [CALLBACK]
     body = client_id[len("loci_client_") :]
     assert verify_access_token("loci_at_" + body) is None
-    assert exchange_authorization_code(
-        code="loci_ac_" + body, code_verifier=VERIFIER, client_id=client_id, redirect_uri=CALLBACK
-    ) is None
+    assert (
+        exchange_authorization_code(
+            code="loci_ac_" + body,
+            code_verifier=VERIFIER,
+            client_id=client_id,
+            redirect_uri=CALLBACK,
+        )
+        is None
+    )
     data = json.loads(_registered_payload(client_id))
     assert data["typ"] == "ci" and data["name"] == "Round Trip"
     assert abs(int(data["iat"]) - time.time()) < 60
@@ -335,7 +400,9 @@ def test_contract_token_requires_matching_client_and_redirect(live_server: str) 
     sp = _new_space(live_server, "DCR Token Binding")
     client_id = _register(live_server, CALLBACK, second)
     other_client = _register(live_server, CALLBACK, second)
-    assert other_client != client_id  # an identical registration is still a distinct client
+    assert (
+        other_client != client_id
+    )  # an identical registration is still a distinct client
     code = _code(live_server, client_id, CALLBACK, sp["capability_token"])
 
     mismatches: dict[str, dict[str, str | None]] = {
@@ -362,7 +429,9 @@ def test_contract_token_requires_matching_client_and_redirect(live_server: str) 
 # ---------------------------------------------------------------- transition for pre-signature client_ids
 
 
-def test_legacy_client_id_is_accepted_only_for_known_connector_callbacks(live_server: str) -> None:
+def test_legacy_client_id_is_accepted_only_for_known_connector_callbacks(
+    live_server: str,
+) -> None:
     sp = _new_space(live_server, "DCR Legacy")
     token = sp["capability_token"]
 
@@ -373,7 +442,10 @@ def test_legacy_client_id_is_accepted_only_for_known_connector_callbacks(live_se
     ok = _exchange(live_server, code, client_id=LEGACY_CLIENT_ID, redirect_uri=CALLBACK)
     assert ok.status_code == 200, ok.text
 
-    for uri in ("https://chatgpt.com/connector_platform_oauth_redirect", "http://localhost:6274/cb"):
+    for uri in (
+        "https://chatgpt.com/connector_platform_oauth_redirect",
+        "http://localhost:6274/cb",
+    ):
         assert _code(live_server, LEGACY_CLIENT_ID, uri, token)
 
     for uri in (
@@ -395,14 +467,22 @@ def _register_in_process(body: Any) -> httpx.Response:
 
     import server
 
-    app = Starlette(routes=[Route("/oauth/register", server.oauth_register_route, methods=["POST"])])
+    app = Starlette(
+        routes=[Route("/oauth/register", server.oauth_register_route, methods=["POST"])]
+    )
     with TestClient(app) as client:
         if isinstance(body, dict):
             return client.post("/oauth/register", json=body)
-        return client.post("/oauth/register", content=body, headers={"Content-Type": "application/json"})
+        return client.post(
+            "/oauth/register",
+            content=body,
+            headers={"Content-Type": "application/json"},
+        )
 
 
-@pytest.mark.parametrize("body,error", list(BAD_REGISTRATIONS.values()), ids=list(BAD_REGISTRATIONS))
+@pytest.mark.parametrize(
+    "body,error", list(BAD_REGISTRATIONS.values()), ids=list(BAD_REGISTRATIONS)
+)
 def test_register_route_rejects_bad_metadata_in_process(
     server_signing_env: None, body: Any, error: str
 ) -> None:
@@ -411,7 +491,9 @@ def test_register_route_rejects_bad_metadata_in_process(
     assert resp.json()["error"] == error
 
 
-def test_register_route_signs_the_registration_in_process(server_signing_env: None) -> None:
+def test_register_route_signs_the_registration_in_process(
+    server_signing_env: None,
+) -> None:
     from auth import registered_client
 
     resp = _register_in_process({"redirect_uris": [CALLBACK], "client_name": None})
@@ -442,13 +524,20 @@ def test_redirect_binding_helpers_in_process(server_signing_env: None) -> None:
     assert not server._client_redirect_allowed("loci_client_nope", CALLBACK)
 
     assert server._client_redirect_allowed(LEGACY_CLIENT_ID, CALLBACK)
-    assert server._client_redirect_allowed(LEGACY_CLIENT_ID, "https://chat.openai.com/aip/cb")
+    assert server._client_redirect_allowed(
+        LEGACY_CLIENT_ID, "https://chat.openai.com/aip/cb"
+    )
     assert server._client_redirect_allowed(LEGACY_CLIENT_ID, "http://127.0.0.1:9/cb")
     for uri in (EVIL, "http://claude.ai/cb", "javascript:alert(1)", "https://[::1", ""):
         assert not server._client_redirect_allowed(LEGACY_CLIENT_ID, uri), uri
 
-    assert server._authorize_precondition_error(client_id, CALLBACK, CHALLENGE, "S256") is None
-    unregistered = server._authorize_precondition_error(client_id, EVIL, CHALLENGE, "S256")
+    assert (
+        server._authorize_precondition_error(client_id, CALLBACK, CHALLENGE, "S256")
+        is None
+    )
+    unregistered = server._authorize_precondition_error(
+        client_id, EVIL, CHALLENGE, "S256"
+    )
     assert unregistered is not None and unregistered.status_code == 400
     no_pkce = server._authorize_precondition_error(client_id, CALLBACK, "", "S256")
     assert no_pkce is not None and b"S256 PKCE is required" in no_pkce.body
@@ -457,5 +546,10 @@ def test_redirect_binding_helpers_in_process(server_signing_env: None) -> None:
         "<strong>&lt;i&gt;X&lt;/i&gt;</strong> at <strong>claude.ai</strong>"
     )
     unnamed = mint_client_id([CALLBACK], "")
-    assert server._consent_destination(unnamed, CALLBACK) == "<strong>claude.ai</strong>"
-    assert server._consent_destination(LEGACY_CLIENT_ID, CALLBACK) == "<strong>claude.ai</strong>"
+    assert (
+        server._consent_destination(unnamed, CALLBACK) == "<strong>claude.ai</strong>"
+    )
+    assert (
+        server._consent_destination(LEGACY_CLIENT_ID, CALLBACK)
+        == "<strong>claude.ai</strong>"
+    )
