@@ -1,294 +1,77 @@
-# LINC Loci (`0xL0C1`) — Product & Technical Roadmap
+# LINC Loci (`0xL0C1`) — Product & Business Roadmap
 
-## Live Production Status (October 2026)
+## 1. Live Production Status (October 2026)
 
 - **Production Endpoint:** [`https://loci.lincinnovations.com`](https://loci.lincinnovations.com) (`GET /health` → `{"ok": true, "backend": "postgres", "db": "ok"}`)
-- **Cloud Stack:** Google Cloud Run (`loci-0xl0c1`, `us-west1`) + Cloud SQL PostgreSQL 16 (`FORCE ROW LEVEL SECURITY`) + Vertex AI `text-embedding-004` (768-d semantic + trigram/tag RRF recall)
+- **Cloud Stack:** Google Cloud Run (`loci-0xl0c1`, `us-west1`, revision `loci-00014-gx2`) + Cloud SQL PostgreSQL 16 (`FORCE ROW LEVEL SECURITY`) + Vertex AI `text-embedding-004` (768-d semantic + trigram/tag RRF recall)
 - **MCP Primitives (Live):** `observe`, `ask`, `commit` (with `save=False` dry-run preview gate), and `list_spaces`
-- **Security & Auth (Hardened):** OAuth 2.1 with mandatory `S256` PKCE, stateless HMAC-signed Dynamic Client Registration (`client_id` binds `redirect_uris`), capability-token proof-of-possession (`/loci-<space_token>/`), and zero public tenant enumeration
+- **Security & Auth (Hardened):** OAuth 2.1 with mandatory `S256` PKCE, stateless HMAC-signed Dynamic Client Registration (`client_id` binds `redirect_uris`), capability-token proof-of-possession (`/loci-<space_token>/`), and zero public tenant enumeration (`176 passed` in `just check`)
 
 ---
 
-## Phased Product Roadmap
+## 2. Joint Product & Business Council Ruling (`2026-10-24`)
 
-### Phase 1 — Multi-Tenant Cloud & OAuth 2.1 Hardening (`DONE`)
-- Migrated from single-tenant hackathon prototype to 6-table multi-tenant PostgreSQL 16 schema with `FORCE ROW LEVEL SECURITY` (`app.current_space_id`).
-- Shipped Vertex AI `text-embedding-004` 768-d hybrid RRF matching + 20-char homoglyph-free Mod-30 Visual Base32 tag generator (`/loci-<token>/labels.svg`).
-- Completed 4-part security hardening chain (PRs #2–#5): credential-gated `/api/spaces`, OAuth 2.1 proof-of-possession consent, mandatory `S256` PKCE, and signed stateless DCR `client_id` validation.
+- **Product Council (`session_id: bd162c8d31cc`):** Marty Cagan, Teresa Torres, Shreyas Doshi, Ryan Singer, Eliyahu Goldratt
+- **Business LINC Council (`session_id: 48c4186c0bc4`):** Peter Thiel, Jeff Bezos, Patrick Collison, Patrick McKenzie (`patio11`), Seth Godin, Naval Ravikant
 
-### Phase 1.5 — Web Console, Interactive Showcase & Tag Kit Surfaces (`DONE`)
-- Upgraded `/` landing page with interactive read-only multi-scenario Space Showcase (`Commercial Mechanical & Plumbing Handoff`, `LINC Hardware Bench`, `SniperPulse NRL22 Match Kit`), Zero-Pixel Privacy Guarantee callout, and Private Space jump box.
-- Upgraded `/pricing` with interactive `<dialog>` checkout & pilot provisioning modal and `/labels-sample.svg` printable 300-DPI vector tag sheet preview.
-- Upgraded `/loci-<space_token>/` (`viewer.html`) with live search/filter, 1-click Copy MCP URL, cross-tech handoff counter, and amber Active Cursor callouts.
+### Core Council Decisions (11/11 Unanimous)
 
-### Phase 2 — 5-Space Field Validation Gate (`ACTIVE` · Target: `2026-11-15`)
-
-- **North-Star Metric (Council Ruling `e26bc71aff22`):** **Cross-Actor Handoff Completions** — an `ask` recall or follow-up `commit` on a physical object where `caller_subject != latest_lesson.author_subject` across different devices or assistants (`Claude` ↔ `ChatGPT` ↔ `Gemini`).
-- **Live Cloud SQL Baseline (`2026-10-24` post-Step 2.4 drill):**
-  | Space ID | Slug | Tier | Tagged Objects | Committed Lessons | Active Cursors | Cross-Actor Handoffs | Target Field Role |
-  |---|---|---|---:|---:|---:|---:|---|
-  | `sp_deeea3b745a3` | `linc-hardware-bench` | `team` | 4 | 5 | 3 | 5 | Internal #1: LINC device bench (`CP-V7` Rigol PSU, `CK-CD` Pixel 6a, `CR-GT` Galaxy S24, `C9-R7` Galaxy Watch7) |
-  | `sp_a2c8adde28f9` | `faust-household-workshop` | `pro` | 4 | 5 | 3 | 4 | Internal #2: Household utility (`FA-A5` main shutoff, `FA-HR` hydronic mixer, `FA-Z2` 200A subpanel, `FA-CK` air filter) |
-  | `sp_6d7d6d4c1baf` | `sniperpulse-nrl22-kit` | `pro` | 4 | 5 | 3 | 4 | Internal/Field #3: NRL22 match kit (`SP-X4` CZ 457 turret, `SP-MZ` Garmin Xero, `SP-2S` Kestrel 5700, `SP-QP` Fix It Sticks) |
-  | `sp_84474893669e` | `commercial-mechanical-handoff` | `team` | 2 | 3 | 1 | 1 | External Pilot #1: Commercial mechanical / plumbing shift handoff (`CM-A2`, `CM-PT`) |
-  | `sp_5db26b928480` | `ai-tinkerers-seattle-pilot` | `free` | 1 | 2 | 2 | 0 | External Pilot #2: AI Tinkerers Seattle operator & maker shop pilot (`AT-2P`) |
-  | **Total (5 Spaces)** | | | **15** | **20** | **12** | **14** | **Gate Thresholds: $\ge 3$ Spaces, $\ge 10$ Tagged Objects, $\ge 20$ Lessons, $\ge 2$ Handoffs** |
-
-- **Phase 2 Execution Plan (Next Steps in Order):**
-  1. **Step 2.1 — Space Token Rotation & Provisioning (`POST /api/spaces/{space_id}/rotate-token`) (`DONE`):**
-     - *Shipped:* Added `db.rotate_space_token(space_id)` and `POST /api/spaces/{space_id}/rotate-token` (authorized by operator root token or current Space Bearer credential), returning fresh `capability_token`, `mcp_url`, `console_url`, and `labels_svg_url` while storing only the SHA-256 digest in `space.capability_token_hash` and immediately invalidating the previous token.
-  2. **Step 2.2 — North-Star Handoff Telemetry (`ask` resume counter + `/api/spaces` metrics) (`DONE`):**
-     - *Shipped:* `ask()` now records `ask_count`, `cross_actor_ask_count`, and handoff metadata in `object.attrs_json` and returns `"cross_actor_handoff": bool` when a second subject (`caller_subject != latest_lesson.author_subject`) resumes an object. `GET /api/spaces` and `GET /loci-<token>/api/state` now expose `tagged_object_count`, `active_cursor_count`, `ask_count`, `cross_actor_handoff_count`, and `handoff_count` in one API call.
-  3. **Step 2.3 — Physical Tag Sheet Bundle & 12-Object Bench/House/Range Binding (`DONE` — ready to stick on hardware):**
-     - Bound 12 internal physical assets across `linc-hardware-bench` (`CP-V7`, `CK-CD`, `CR-GT`, `C9-R7`), `faust-household-workshop` (`FA-A5`, `FA-HR`, `FA-Z2`, `FA-CK`), and `sniperpulse-nrl22-kit` (`SP-X4`, `SP-MZ`, `SP-2S`, `SP-QP`) and exported all 5 300-DPI vector SVG sheets to `.env.print-bundle/`.
-  4. **Step 2.4 — Cross-Assistant Field Handoff Drills (`DONE` on Cloud SQL · External Pilot Handoff Active):**
-     - Verified live cross-actor `observe` → `commit(save=True)` → `ask(visible_tag_code)` → follow-up `commit` handoffs across distinct subjects on `https://loci.lincinnovations.com`, bringing live Cloud SQL totals to **15 tagged objects**, **20 committed lessons**, and **14 cross-actor handoffs**.
-     - *Remaining field action before `2026-11-15`:* Print the `.env.print-bundle/*.svg` sticker sheets onto weatherproof stock and hand off the 2 external Seattle pilot Spaces (`commercial-mechanical-handoff`, `ai-tinkerers-seattle-pilot`).
-- **Gate & Kill Criterion (`2026-11-15`):**
-  - **PASS:** $\ge 3$ active Spaces, $\ge 10$ physically tagged objects, $\ge 20$ committed lessons, and $\ge 2$ unprompted cross-actor handoffs completed across separate sessions/assistants.
-  - **KILL / FREEZE:** If $< 3$ Spaces are active or $0$ unprompted cross-actor handoffs occur by `2026-11-15`, freeze Phase 3/4 B2B billing & seat work and retain Loci strictly as LINC's internal bench/asset memory MCP server.
-
-### Phase 3 — v0.2 Self-Serve Space Onboarding & Physical Tag Packs (`NEXT` · Post-Gate)
-- **Self-Serve Space Provisioning:** Wire `/pricing` `<dialog>` checkout to Stripe Checkout (`$12/mo` Pro, `$49/mo` Team, `$29` 50-pack tags) and webhook-driven `db.create_space()`, returning the new capability URL once on completion.
-- **Physical Tag Pack Fulfillment:** Die-cut weatherproof UV/oil-resistant matte-black/signal-white `0xL0C1` visual Base32 sticker packs (`50x` per sheet) with pre-assigned Space prefixes.
-- **Claim Lifecycle Helpers:** Add `supersede_claim` / `status: superseded | disputed` workflow in `commit()` so updated torque specs, firmware versions, or part numbers cleanly replace stale claims without losing audit history.
-
-### Phase 4 — v0.3 Place-Level Lessons & B2B Field-Service Handoff (`LATER`)
-- **Place-Level Lessons (`lesson.place_id`):** Support room/zone lockout-tagout (LOTO) and access procedures attached directly to a `place` without requiring a dummy object.
-- **Team Seat & Role Enforcement:** Enforce `membership.role` (`owner`, `writer`, `viewer`) on OAuth 2.1 tokens and capability paths, plus shift-handoff digest webhooks when an open `next_question` cursor is resolved.
+1. **Honest Baseline Accounting (Drill vs. External Unprompted Handoffs):**
+   - Internal dogfooding and synthetic cross-assistant drills (`14` drill handoffs across `15` tagged objects on `2026-10-24`) prove the technical plumbing works, **not** market demand.
+   - **Strict North-Star Definition:** An **External Unprompted Cross-Actor Handoff** requires:
+     1. A non-LINC human at an external organization,
+     2. On an object physically tagged in their workspace,
+     3. Where `caller_subject != latest_lesson.author_subject` (or a zero-install capability viewer/QR recall by a second person) with **zero prompting from LINC in the prior 24 hours**.
+   - **Current Honest External Baseline (`2026-10-24`):** `0` external unprompted handoffs, `$0` external revenue.
+2. **True System Bottleneck (Goldratt / Torres / Collison):**
+   - The constraint is **physical stickers on real equipment in outsiders' hands** and **Person #2's setup friction** (configuring a custom OAuth MCP connector on a phone).
+   - **Zero-Install Handoff Path:** The read-only capability URL (`/loci-<viewer_token>/`) and QR/short-link scan on the tag sheet allow Technician #2 to read the active cursor and part specs in 1 second **without** installing an MCP connector first.
+3. **Go-To-Market Wedge — Two-Track Validation (No Second Funnel):**
+   - **Track A — Embedded Memory Layer for LINC HIL Bench (`Lane A` Bundle, 5/6 Business Council):** Every paid **$49 Watch+Phone Bench Run** and **$7,500 Device Truth Audit** ships with a pre-provisioned LOCI Space bound to the device under test (`CR-GT`, `C9-R7`). Zero additional CAC; tests whether AI-native hardware/mobile teams retain and query the Space after their bench run.
+   - **Track B — Commercial Mechanical / Field-Service Pilot (Godin + All 11 Advisors):** Hand-deliver 10 pre-bound weatherproof stickers to a named commercial mechanical/plumbing operator (`sp_84474893669e`), observe a $\le 15$-minute uncoached setup, and quote a site-based price (**`$149/mo per site/shop` + `$300` setup**, not `$4.90/seat`).
+4. **Minimum Viable Correction & UI Scope (Appetite: Max 1 Weekend):**
+   - **No self-serve Stripe webhook provisioning, seat/role matrices, or bulk CRUD admin panels before Milestone M4.** Use a 10-minute **Stripe Payment Link** with manual `POST /api/spaces` fulfillment for the first 10 buyers.
+   - **Trust-Preserving Corrections Only:** Pull `supersede_claim` / soft-retract forward in MCP and add a minimal 3-action console correction bar (**Resolve `next_question` cursor**, **Edit object label/place**, **Soft-retract lesson**) guarded by a separate write confirmation/token and tagged `actor=console:human` so cleanup edits never pollute handoff telemetry.
+5. **Time & Attention Cap:**
+   - Cap standalone LOCI work at **$\le 4\text{ hours/week}$** until **M2 (`2026-11-15`)** and **M3 (`2026-12-06`)** pass so LOCI reinforces rather than competes with LINC's `2027-01-31` Lane A revenue gate.
 
 ---
 
-## Historical Archive: Hackathon Day vertical slice (2026-09-12)
+## 3. 90-Day Milestone Roadmap (`M1` → `M4` · Oct 24, 2026 – Jan 22, 2027)
 
-### Goal
+| Milestone | Target Date | Concrete Deliverables | Hard PASS Gate | Hard KILL / FREEZE Rule |
+|---|---|---|---|---|
+| **M1 — Physical Stickers, VLM Readability & Payment Link** | **`2026-11-01`** | 1. Print `.env.print-bundle/*.svg` on weatherproof stock and affix all 12 internal tags (`linc-hardware-bench`, `faust-household-workshop`, `sniperpulse-nrl22-kit`).<br>2. Run **20-photo VLM Tag Readability Benchmark** (glare, grease, 45° angle, 4 ft distance across Claude/ChatGPT/Gemini).<br>3. Put physical stickers in **2 named outside pilot operators' hands** during an observed $\le 15$-min uncoached setup.<br>4. Add live **Stripe Payment Links** (`$29` Tag Kit / `$149/mo` Site Pilot) on `/pricing` with manual fulfillment. | • VLM tag read hit rate $\ge 90\%$ ($18/20$)<br>• $\ge 2$ outside operators connect & complete 1st `observe` + `commit` uncoached within 15 min<br>• Live Stripe Payment Link verified | • If VLM readability $< 80\%$, add compact QR fallback to `labels.py` immediately.<br>• If an outside pilot cannot complete MCP setup in 15 min, default Tech #2 to zero-install Web Viewer / QR handoff. |
+| **M2 — Honest External Field Validation Gate** | **`2026-11-15`** | 1. Exclude internal/drill subjects (`drill=true`, `@lincinnovations.com`, `@lincforge.com`, `@sniperpulse.com`) from external gate count.<br>2. Ship `supersede_claim` + console **Resolve Cursor / Edit Label / Soft-Retract** (`actor=console:human`) with separate viewer vs. writer token.<br>3. Conduct $\ge 2$ recorded 15-min story interviews with pilot operators. | • $\ge 2$ external Spaces with $\ge 3$ physically tagged objects each (photo proof)<br>• **$\ge 2$ unprompted external cross-actor handoffs** across distinct humans/sessions in Cloud SQL logs | **0 external unprompted handoffs on `2026-11-15`** → **FREEZE** all standalone LOCI SaaS/UI/billing work. Retain LOCI strictly as LINC's internal bench memory MCP and embedded Lane A artifact. |
+| **M3 — First External Dollar & Repeat Weekly Pull** | **`2026-12-06`** | 1. Present priced site pilot (`$149/mo` per site/shop or `$250` 60-day pilot + tag kit) to $\ge 5$ qualified prospects (device/HIL labs + mechanical contractors).<br>2. Attach a pre-provisioned LOCI Space to every Lane A bench run deliverable. | • $\ge 1$ external Space records unprompted handoffs in **2 consecutive weeks** without LINC nudging<br>• **$\ge 1$ non-friend external buyer pays real money** ($\ge \$29$ tag kit or $\ge \$99/\text{mo}$ pilot) via Stripe Payment Link | **$0$ paid commitments after $\ge 5$ qualified asks** → Hide public SaaS pricing grid behind *"Included with LINC Bench Runs"* and stop standalone LOCI sales. |
+| **M4 — Retention, Lane A Attach & Self-Serve Decision** | **`2027-01-22`** *(9 days before Lane A `01-31` gate)* | 1. Evaluate 30-day retention, second-month billing renewal, and Lane A Space attach rate.<br>2. **Go / No-Go Decision Memo** on Phase 3 self-serve automation. | • **$\ge 3$ paying external Spaces** ($\ge \$150\text{–}\$300$ MRR)<br>• $\ge 1$ second-month renewal<br>• $\ge 2$ Lane A bench runs delivered with an active attached LOCI Space | **Below threshold** → Permanently internalize LOCI as LINC lab infrastructure; do **not** build automated Stripe webhooks, seat/role matrices, or standalone marketing. |
 
-Deliver a working hackathon demo in which one technician records an object-linked repair
-memory and a different technician, on another device and AI, retrieves it the next day,
-resolves an ambiguous match, verifies the recorded part requirement, and finishes the job
-without asking the customer to repeat the story.
+---
 
-### Product question
+## 4. Current Cloud SQL Telemetry Snapshot (`2026-10-24`)
 
-> Can Loci let one field technician leave a trustworthy, object-linked job memory that a
-> different technician—using a different device and AI—can retrieve the next day to confirm
-> the recorded part requirement and finish the repair without making the customer repeat the
-> story?
+> **Accounting Note (Council Ruling `bd162c8d31cc` / `48c4186c0bc4`):** Rows 1–3 are internal LINC dogfood Spaces; the `14` cross-actor handoffs recorded on `2026-10-24` are synthetic verification drills (`drill=true`). External unprompted handoff baseline for the **M2 (`2026-11-15`)** gate starts at **`0`**.
 
-### System boundaries (Hackathon Prototype)
+| Space ID | Slug | Scope | Tier | Tagged Objects | Committed Lessons | Active Cursors | Drill Handoffs | External Unprompted Handoffs |
+|---|---|---|---|---:|---:|---:|---:|---:|
+| `sp_deeea3b745a3` | `linc-hardware-bench` | Internal Dogfood #1 | `team` | 4 (`CP-V7`, `CK-CD`, `CR-GT`, `C9-R7`) | 5 | 3 | 5 | — |
+| `sp_a2c8adde28f9` | `faust-household-workshop` | Internal Dogfood #2 | `pro` | 4 (`FA-A5`, `FA-HR`, `FA-Z2`, `FA-CK`) | 5 | 3 | 4 | — |
+| `sp_6d7d6d4c1baf` | `sniperpulse-nrl22-kit` | Internal Dogfood #3 | `pro` | 4 (`SP-X4`, `SP-MZ`, `SP-2S`, `SP-QP`) | 5 | 3 | 4 | — |
+| `sp_84474893669e` | `commercial-mechanical-handoff` | **External Pilot #1** | `team` | 2 (`CM-A2`, `CM-PT`) | 3 | 1 | 1 | **0** *(Target: $\ge 1$ by Nov 15)* |
+| `sp_5db26b928480` | `ai-tinkerers-seattle-pilot` | **External Pilot #2** | `free` | 1 (`AT-2P`) | 2 | 2 | 0 | **0** *(Target: $\ge 1$ by Nov 15)* |
+| **Totals** | | **3 Internal · 2 External** | | **15** | **20** | **12** | **14** | **0 / 2 Required for M2** |
 
-```mermaid
-flowchart LR
-    T1[Tech 1\nClaude on phone] -->|observe / commit over MCP| L[Loci MCP service]
-    T2[Tech 2\nChatGPT on phone] -->|ask / confirm over MCP| L
+---
 
-    D[Dispatcher web\nCopilotKit + AG-UI] <--> R[Copilot Runtime\nBuiltInAgent]
-    R -->|Loci MCP| L
-    D -->|approved return task| A[Ambiguous Tasks]
+## 5. Completed Engineering Phases (`DONE`)
 
-    M[Mobile field app\nCopilotKit React Native — stretch] <--> R
-
-    L -->|append / read events| S[Ambiguous Sheets]
-    L --> V[Existing graph viewer]
-```
-
-- **Loci** owns the public `observe`, `commit`, and `ask` contracts, object matching,
-  ambiguity handling, and graph projection.
-- **Ambiguous Sheets** was used as an optional append-only event log during the hackathon alongside PostgreSQL/SQLite.
-- **CopilotKit and AG-UI** provided the dispatcher-facing agent interaction, job context,
-  streaming, tool calls, and rendered handoff states.
-
-## Preferred persistence: Ambiguous Sheets
-
-Use one restricted Ambiguous spreadsheet as a small append-only event log. This matches the
-hackathon data volume, removes local database operation, and makes the sponsor integration
-part of the core architecture rather than a decorative add-on.
-
-Runtime configuration:
-
-- `AMBIGUOUS_API_KEY`: server-side only; never returned to a browser or committed.
-- `LOCI_AMBIGUOUS_SHEET_ID`: ID of the restricted spreadsheet provisioned for the demo.
-- Optional `AMBIGUOUS_API_BASE`, defaulting to `https://app.ambiguous.ai/api`, for test
-  injection only.
-
-The implementation uses the versioned REST surface described by Ambiguous's public OpenAPI:
-
-- `POST /api/sheets` provisions the restricted sheet.
-- `POST /api/sheets/{id}/values/append` appends at the first empty row in a finite A1 range
-  (the adapter uses `Events!A1:M1`) without a read-before-write.
-- `GET /api/sheets/{id}/data` returns a Sheet envelope whose structured workbook is nested
-  under `data.sheets`; rows are keyed by column IDs and are validated before reconstruction.
-
-The `Events` tab has a header row and one row per immutable event:
-
-| Column | Meaning |
-| --- | --- |
-| `schema_version` | Event schema version, initially `1` |
-| `event_id` | Client-generated UUID used for idempotency and traceability |
-| `event_type` | `object_observed` or `lesson_committed` |
-| `recorded_at` | UTC timestamp |
-| `object_id` | Stable Loci object UUID |
-| `place_label` | User-supplied room or zone |
-| `canonical_class` | Bare object class |
-| `material` / `mounting` | Existing constrained identity fields |
-| `visible_verbatim_text` | Exact visible stamp, size, or model text |
-| `visible_tag_code` / `user_label` | Strong optional identifiers |
-| `payload_json` | Versioned event-specific description, intent, claims, and open question |
-
-`observe` appends `object_observed`. `commit(save=false)` performs no provider write and
-returns only a preview. `commit(save=true)` appends `lesson_committed`. `ask` and the viewer
-read the sheet and fold its events into the existing place/object/lesson/claim projection in
-memory before matching. Missing credentials, invalid provider responses, and incomplete reads
-must fail closed rather than returning plausible success.
-
-For unit and contract tests, use a fake HTTP transport; tests never require a real API key.
-The first live check is a bounded identity/schema/create-or-select/append/read round trip with
-throwaway data. If that cannot pass in ten minutes after credentials are available, use the
-already deployed remote RDS path as the emergency demo fallback—still without requiring a
-local database process.
-
-## One-hour MVP critical path
-
-The clock begins when the Ambiguous key and sheet are available.
-
-### 0–10 minutes: live storage gate
-
-- Verify the Ambiguous identity and current Sheets request schemas.
-- Provision or select one restricted sheet and write its header.
-- Append one throwaway event and read it back.
-- Record only the sheet ID in deployment configuration; keep the key secret.
-
-**Gate:** do not continue on the Ambiguous path unless the exact appended event is read back.
-
-### 10–30 minutes: storage adapter and writes
-
-- Add a narrow Ambiguous Sheets adapter with explicit timeouts and validated response shapes.
-- Implement `observe` as a real append returning the durable `object_id`.
-- Implement `commit` preview and saved append semantics.
-- Cover missing configuration, provider errors, preview-no-write, and successful reconstruction
-  with focused tests.
-
-### 30–50 minutes: retrieval and ambiguity
-
-- Fold event rows into the existing graph response.
-- Implement place filtering, object ID and tag shortcuts, description scoring, and the existing
-  confirm band.
-- Return diagnosis, completed work, customer note, recorded part requirement, and open question.
-- Seed exactly two similar objects in one uniquely named demo place: the sink shutoff and the
-  toilet shutoff.
-
-### 50–60 minutes: deploy and prove
-
-- Deploy App Runner with the Ambiguous key and sheet ID supplied as secrets.
-- From one assistant, observe and commit the toilet-shutoff handoff.
-- Confirm the row through both Ambiguous Sheets and the Loci graph viewer.
-- From a fresh assistant on another device, trigger the two-candidate confirm state, select the
-  toilet shutoff, and retrieve the complete handoff.
-- Record an immediate insurance take before enhancing either UI.
-
-The MVP is done only when the live path works twice consecutively. Unit tests, health checks,
-or mocked tool output alone do not satisfy the gate.
-
-## Submission-ready dispatcher
-
-After the live MVP is recorded, use `job-site-memory` as the dispatcher seat:
-
-1. Replace the inherited incident screen with a selected Smart Handoff job.
-2. Register the selected place, customer note, and return-visit state through
-   `useAgentContext`.
-3. Keep the pinned CopilotKit, runtime, and `@ag-ui/client` versions.
-4. Connect the existing `BuiltInAgent` to the live Loci MCP URL.
-5. Render three deterministic states: match confirmation, handoff briefing, and open action.
-6. Let the agent propose a return visit or part-pickup task; require a dispatcher click before
-   the existing server adapter creates it in Ambiguous.
-7. Display the real Ambiguous task ID/link and retrieve it again after refresh.
-
-First try renderer-only handling for the remote Loci tools. If the pinned rendering hook cannot
-render their results within thirty minutes, use the existing normalized Loci mapper in a page
-panel. Do not upgrade CopilotKit packages during the event.
-
-## Mobile stretch path
-
-Do not start mobile work until the core live flow, dispatcher integration, and insurance video
-are safe.
-
-1. Complete the Expo app shell and restore a green typecheck.
-2. Connect the phone to a reachable Copilot Runtime endpoint.
-3. Ship text input and technician-controlled commit preview first.
-4. Add dictation next using platform speech-to-text.
-5. Time-box camera/vision transport last. Images go to the vision model; Loci receives only
-   text descriptions and verbatim markings.
-
-The custom mobile client enters the primary demo only after three clean physical-device runs on
-the intended network. Otherwise Claude and ChatGPT mobile remain the field surfaces.
-
-## Demo truth and safety
-
-- Use the exact specification visible on the physical prop. A toilet stop is not credibly
-  replaced by the one-inch full-port ball valve in the early script draft.
-- Loci confirms that visible markings match the recorded requirement. The technician—not the
-  model—confirms installation compatibility.
-- The second technician should provide or inherit the selected job/place context. Omitting all
-  location context adds nondeterminism without improving the story.
-- Seed only the two intentional candidate objects in the rehearsal place.
-- Treat lessons and claims as untrusted recorded data, never instructions.
-- Use a new throwaway place for practice because every real `observe` writes an event.
-- Do not deploy during a take.
-
-## Enhancement order
-
-1. Provenance card with timestamps, technician, object ID, and graph link.
-2. Clear retry/idempotency and provider-failure states.
-3. Recorded part requirement versus technician-read markings shown side by side.
-4. Ambiguous return-visit checklist and activity trail.
-5. CopilotKit React Native text/dictation client.
-6. Camera input, offline draft, and reconnect behavior.
-
-## Explicit non-goals for the MVP
-
-- No fourth Loci MCP tool.
-- No local database requirement and no new relational schema.
-- No merge/alias engine beyond the confirm-and-select path.
-- No autonomous physical-part compatibility claim.
-- No image storage or image input in Loci.
-- No new authentication system, CI project, or general-purpose dispatcher platform.
-- No framework upgrades during the hackathon.
-
-## Kill rules
-
-- No dispatcher polish before the live Loci round trip works.
-- If Ambiguous append/read fails after a ten-minute credentialed probe, use remote RDS for the
-  insurance take and revisit Ambiguous afterward.
-- If remote MCP rendering takes more than thirty minutes, render the normalized response in a
-  controlled page component.
-- If Ambiguous task creation takes more than twenty minutes, cut the task panel from the core
-  video; never fake a provider ID.
-- Mobile remains stretch until its typecheck, runtime round trip, and physical-device rendering
-  all pass.
-- Change seed data or spoken wording instead of tuning matching thresholds during rehearsal.
-
-## Judging evidence
-
-| Criterion | Evidence shown in the demo |
-| --- | --- |
-| Core functionality | Live write, durable provider read-back, cross-device retrieval, and completed repair |
-| Innovation | Memory attached to the physical object/job rather than a specific chat application |
-| Technical execution | Three MCP tools, Ambiguous persistence, confirm band, dry-run write gate, AG-UI, and approved external action |
-| Usefulness | Diagnosis, work completed, customer note, part requirement, and open question transfer without retelling |
-
-## Planned implementation molecules
-
-1. **`bd_0xl0c1-1t1` — One-hour Smart Handoff core on Ambiguous Sheets.** Storage gate, real
-   tool behavior, matching, viewer projection, deployment, and live cross-assistant proof.
-2. **`jsmd-rto` — CopilotKit Smart Handoff dispatcher MVP.** Selected-job context, rendered
-   Loci handoff, human-approved Ambiguous return task, and live browser proof.
-3. **`jsmm-tdv` — Hackathon MVP: mobile path feasibility spikes.** Retain this existing
-   canonical spike molecule only; it is already kickoff-approved and in progress, but it must
-   not block the one-hour core or produce speculative implementation before its GO verdict.
-
-The old SQLite/Postgres Saturday chain was closed as superseded by `bd_0xl0c1-1t1`. The old
-merge/carry, shipping, and broad polish beads are not dependencies of this hackathon MVP. The
-new core and dispatcher molecules remain at `kickoff=pending`; approve the core first. The
-existing dispatcher feasibility molecule `jsmd-qln` and mobile feasibility molecule `jsmm-tdv`
-are already in progress in other seats. Reuse their evidence when it lands, but do not let either
-delay the live core.
+- **Phase 1 — Multi-Tenant Cloud & OAuth 2.1 Hardening (`DONE`, PRs #1–#6):**
+  - 6-table PostgreSQL 16 schema (`space`, `membership`, `place`, `object`, `lesson`, `claim`) with `FORCE ROW LEVEL SECURITY` (`loci.current_space_id`) and composite `(space_id, id)` foreign keys.
+  - Vertex AI `text-embedding-004` 768-d hybrid RRF matching + 20-char homoglyph-free Mod-30 Visual Base32 tag generator (`/loci-<token>/labels.svg`).
+  - OAuth 2.1 with mandatory `S256` PKCE, capability-token proof-of-possession consent, SHA-256 hashed capability tokens at rest, and stateless HMAC-signed DCR `client_id` validation.
+- **Phase 1.5 — Web Console, Interactive Showcase & Tag Kit Surfaces (`DONE`, PR #7 + `linc-site#134`):**
+  - Redesigned `/`, `/pricing` (`<dialog>` checkout/pilot modal), `/oauth/authorize`, `/labels-sample.svg`, and `/loci-<token>/` (`viewer.html` with live filter + 1-click Copy MCP URL).
+- **Phase 2A — Token Rotation, Handoff Telemetry & Printable Tag Bundle (`DONE`, PRs #9–#11):**
+  - Shipped `POST /api/spaces/{space_id}/rotate-token` and rotated all 5 Cloud SQL Spaces.
+  - Instrumented `ask()` cross-actor handoff counters in `object.attrs_json` and exposed single-call gate metrics on `GET /api/spaces` and `GET /loci-<token>/api/state`.
+  - Bound 12 internal bench/workshop/range assets and exported all 5 300-DPI vector SVG sheets to `.env.print-bundle/`.
