@@ -343,3 +343,180 @@ def test_observe_commit_preview_and_confirmed_resume(monkeypatch):
     assert resumed["status"] == "ok" and resumed["match"]["id"] == object_id
     assert resumed["lessons"][0]["next_question"] == "bring wrench"
     assert resumed["claims"][0]["status"] == "untrusted"
+
+
+def test_mcp_tools_expose_annotations_and_claim_schema(server):
+    r = _rpc(server, f"/loci-{TOKEN}/mcp", "tools/list", {}, id_=20)
+    assert r.status_code == 200, r.text
+    tools = {t["name"]: t for t in r.json()["result"]["tools"]}
+    assert {"observe", "ask", "commit", "list_spaces"}.issubset(tools.keys())
+    for name in ("observe", "ask", "commit", "list_spaces"):
+        ann = tools[name].get("annotations") or {}
+        assert ann.get("readOnlyHint") is True, f"{name} missing readOnlyHint=True"
+        assert ann.get("destructiveHint") is False, (
+            f"{name} missing destructiveHint=False"
+        )
+        assert ann.get("idempotentHint") is True, f"{name} missing idempotentHint=True"
+        assert ann.get("openWorldHint") is False, f"{name} missing openWorldHint=False"
+
+    commit_schema = tools["commit"]["inputSchema"]
+    assert "save" not in commit_schema.get("required", [])
+    assert commit_schema["properties"]["save"].get("default") is True
+    claim_props = commit_schema["properties"]["claims"]["items"].get("properties") or {}
+    assert "text" in claim_props
+    assert "confidence" in claim_props
+
+
+def test_commit_and_ask_tolerate_null_optional_fields_and_flexible_claims(
+    server, caplog
+):
+    obs = _rpc(
+        server,
+        f"/loci-{TOKEN}/mcp",
+        "tools/call",
+        {
+            "name": "observe",
+            "arguments": {
+                "place_label": "Driveway, front lawn",
+                "canonical_class": "planter",
+                "material": "ceramic_or_porcelain",
+                "mounting": "freestanding_floor",
+                "visible_verbatim_text": None,
+                "description": "Large glazed blue ceramic pot on front lawn by driveway",
+                "visible_tag_code": None,
+                "user_label": "Large ceramic pot on front lawn by driveway",
+                "space_id": None,
+            },
+        },
+        id_=21,
+    )
+    assert obs.status_code == 200, obs.text
+    obs_res = obs.json()["result"]
+    assert obs_res.get("isError") is False
+    object_id = obs_res["structuredContent"]["object_id"]
+
+    # Commit with save omitted (defaults to True), null optional strings, and mixed claim shapes
+    com = _rpc(
+        server,
+        f"/loci-{TOKEN}/mcp",
+        "tools/call",
+        {
+            "name": "commit",
+            "arguments": {
+                "object_id": object_id,
+                "title": "Molbak's retail experience and real-estate control",
+                "claims": [
+                    {
+                        "text": "Purchased at Molbak's in Woodinville before closure",
+                        "confidence": "verified",
+                    },
+                    {
+                        "text": "Retail destination model depended on underlying real-estate control"
+                    },
+                    "High-margin seasonal garden retail could not outbid redevelopment value",
+                ],
+                "intent": None,
+                "next_question": None,
+                "space_id": None,
+            },
+        },
+        id_=22,
+    )
+    assert com.status_code == 200, com.text
+    com_res = com.json()["result"]
+    assert com_res.get("isError") is False, com.text
+    assert com_res["structuredContent"]["status"] == "ok"
+    assert com_res["structuredContent"]["claims_persisted"] == 3
+
+    ask_resp = _rpc(
+        server,
+        f"/loci-{TOKEN}/mcp",
+        "tools/call",
+        {
+            "name": "ask",
+            "arguments": {
+                "object_id": object_id,
+                "material": "",
+                "mounting": "",
+                "place_label": None,
+            },
+        },
+        id_=23,
+    )
+    assert ask_resp.status_code == 200, ask_resp.text
+    ask_res = ask_resp.json()["result"]
+    assert ask_res.get("isError") is False, ask_resp.text
+    structured = ask_res["structuredContent"]
+    assert structured["status"] == "ok"
+    assert structured["match"]["id"] == object_id
+    confidences = [c["confidence"] for c in structured["claims"]]
+    assert 0.95 in confidences
+
+
+def test_logged_decorator_extracts_ask_matched_object_id_and_logs_mcp_errors(
+    monkeypatch, caplog
+):
+    import asyncio
+    import json
+    import logging
+
+    import server
+    from events import StoreResult
+
+    class MemoryStore:
+        def __init__(self):
+            self.events = []
+
+        def append(self, event):
+            saved = dict(event)
+            saved["payload"] = json.loads(saved["payload_json"])
+            self.events.append(saved)
+            return StoreResult(True)
+
+        def read(self):
+            return self.events, StoreResult(True)
+
+    store = MemoryStore()
+    monkeypatch.setattr(server, "_store", lambda: store)
+    with caplog.at_level(logging.INFO, logger="loci"):
+        obs = server.observe(
+            "garage",
+            "planter",
+            "ceramic_or_porcelain",
+            "freestanding_floor",
+            "",
+            "large blue pot",
+        )
+        oid = str(obs["object_id"])
+        resumed = server.ask(object_id=oid)
+        assert resumed["status"] == "ok"
+
+    ask_logs = [
+        rec.getMessage()
+        for rec in caplog.records
+        if "LOCI tool=ask" in rec.getMessage()
+    ]
+    assert any(f"object_id={oid}" in msg for msg in ask_logs)
+
+    sent = []
+
+    async def fake_send(msg):
+        sent.append(msg)
+
+    wrapped = server._send_with_mcp_error_log(fake_send, "sp_test123")
+    with caplog.at_level(logging.WARNING, logger="loci"):
+        asyncio.run(
+            wrapped(
+                {
+                    "type": "http.response.body",
+                    "body": b'{"jsonrpc":"2.0","id":1,"result":{"isError":true,"content":[{"type":"text","text":"validation failed"}]}}',
+                    "more_body": False,
+                }
+            )
+        )
+    err_logs = [
+        rec.getMessage()
+        for rec in caplog.records
+        if "LOCI mcp_error space_id=sp_test123" in rec.getMessage()
+    ]
+    assert len(err_logs) == 1
