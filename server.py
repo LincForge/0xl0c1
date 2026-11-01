@@ -58,6 +58,7 @@ from auth import (
     valid_s256_challenge,
     verify_access_token,
 )
+from gate_metrics import compute_handoff_metrics
 from embeddings import cosine_similarity, get_embedding_provider
 from events import new_event, project
 from labels import generate_tag_codes, render_label_sheet_svg
@@ -1408,21 +1409,7 @@ def _state_for_space(space_id: str) -> dict[str, Any]:
         if bool(les.get("is_cursor_active"))
         and str(les.get("next_question") or "").strip()
     )
-    ask_count = sum(int(a.get("ask_count") or 0) for a in obj_attrs)
-    cross_actor_ask_count = sum(
-        int(a.get("cross_actor_ask_count") or 0) for a in obj_attrs
-    )
-    authors_by_obj: dict[str, set[str]] = {}
-    for les in lessons:
-        oid_str = str(les.get("object_id") or "")
-        subj_str = str(les.get("author_subject") or "")
-        if oid_str and subj_str:
-            authors_by_obj.setdefault(oid_str, set()).add(subj_str)
-    cross_tech = sum(max(0, len(authors) - 1) for authors in authors_by_obj.values())
-    cross_actor_handoff_count = cross_actor_ask_count + cross_tech
-    handoff_count = (
-        cross_actor_handoff_count if cross_actor_handoff_count > 0 else len(lessons)
-    )
+    metrics = compute_handoff_metrics(lessons, obj_attrs)
     return {
         "space": (
             {
@@ -1436,9 +1423,7 @@ def _state_for_space(space_id: str) -> dict[str, Any]:
         ),
         "tagged_object_count": tagged_object_count,
         "active_cursor_count": active_cursor_count,
-        "ask_count": ask_count,
-        "cross_actor_handoff_count": cross_actor_handoff_count,
-        "handoff_count": handoff_count,
+        **metrics,
         "places": places,
         "objects": objects,
         "lessons": lessons,

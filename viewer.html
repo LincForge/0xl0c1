@@ -498,7 +498,7 @@ async function tick() {
     if (s.space) {
       document.getElementById('space-title').textContent = s.space.name || 'Space Console';
       document.getElementById('space-tier').textContent = `${s.space.tier || 'free'} tier · ${s.space.slug || s.space.id}`;
-      document.getElementById('space-meta').textContent = `Space ID: ${s.space.id} · Cross-Actor Handoffs: ${s.handoff_count ?? 0}`;
+      document.getElementById('space-meta').textContent = `Space ID: ${s.space.id} · Cross-Actor Handoffs: ${s.handoff_count ?? 0} (external: ${s.external_handoff_count ?? 0})`;
     }
     renderState(s);
     document.getElementById('ts').textContent = 'live · ' + new Date().toLocaleTimeString();

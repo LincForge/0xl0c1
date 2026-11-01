@@ -19,6 +19,7 @@ import psycopg
 from psycopg.rows import dict_row
 
 from auth import sha256_hex
+from gate_metrics import compute_handoff_metrics
 
 HERE = Path(__file__).parent
 DEFAULT_SPACE_ID = "default"
@@ -466,34 +467,13 @@ def list_all_spaces() -> list[dict[str, Any]]:
                 if bool(les.get("is_cursor_active"))
                 and str(les.get("next_question") or "").strip()
             )
-            ask_count = sum(int(a.get("ask_count") or 0) for a in obj_attrs)
-            cross_actor_ask_count = sum(
-                int(a.get("cross_actor_ask_count") or 0) for a in obj_attrs
-            )
-
-            authors_by_obj: dict[str, set[str]] = {}
-            for les in lessons:
-                oid_str = str(les.get("object_id") or "").strip()
-                subj_str = str(les.get("author_subject") or "").strip()
-                if oid_str and subj_str:
-                    authors_by_obj.setdefault(oid_str, set()).add(subj_str)
-            cross_commit_count = sum(
-                max(0, len(authors) - 1) for authors in authors_by_obj.values()
-            )
-            cross_actor_handoff_count = cross_actor_ask_count + cross_commit_count
-            handoff_count = (
-                cross_actor_handoff_count
-                if cross_actor_handoff_count > 0
-                else lesson_count
-            )
+            metrics = compute_handoff_metrics(lessons, obj_attrs)
 
             d["object_count"] = object_count
             d["tagged_object_count"] = tagged_object_count
             d["lesson_count"] = lesson_count
             d["active_cursor_count"] = active_cursor_count
-            d["ask_count"] = ask_count
-            d["cross_actor_handoff_count"] = cross_actor_handoff_count
-            d["handoff_count"] = handoff_count
+            d.update(metrics)
             out.append(d)
         return out
 
