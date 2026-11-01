@@ -215,7 +215,7 @@ def test_drill_subjects_anonymous_empty_and_internal_subdomains_excluded(
 def test_hostile_subjects_and_drill_env_parsing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """[contract] Hostile: whitespace, no '@', domain lookalikes, and LOCI_GATE_DRILL_SUBJECTS edge cases."""
+    """[contract] Hostile: whitespace, no '@' (excluded), domain lookalikes, and LOCI_GATE_DRILL_SUBJECTS edge cases."""
     from gate_metrics import compute_handoff_metrics, is_internal_subject
 
     # 1. LOCI_GATE_DRILL_SUBJECTS unset, empty, or with stray commas -> no crash
@@ -254,7 +254,7 @@ def test_hostile_subjects_and_drill_env_parsing(
     ):
         assert is_internal_subject(internal_subj) is True, internal_subj
 
-    # 3. Domain lookalikes and subjects with no '@' -> treated as external
+    # 3. Domain lookalikes -> treated as external (exact-domain/subdomain rule only)
     for external_subj in (
         "pilot@example.com",
         "  pilot@example.com  ",
@@ -262,12 +262,24 @@ def test_hostile_subjects_and_drill_env_parsing(
         "user@notlincforge.com",
         "user@sniperpulse.com.attacker.example",
         "user@fakelincinnovations.com",
-        "field-tech-no-at-sign",
-        "lincinnovations.com",
     ):
         assert is_internal_subject(external_subj) is False, external_subj
 
-    # 4. Two lookalike/no-'@' subjects on one object count as external handoff
+    # 3b. Unattributable subjects (no '@', empty local part, empty domain) -> excluded, never external.
+    #     Machine clients ('service-client', client_id) and OAuth fallback ('oauth-user') are not humans.
+    for unattributable_subj in (
+        "oauth-user",
+        "service-client",
+        "claude-ai-connector",
+        "@example.com",
+        "pilot@",
+        "  @  ",
+        "field-tech-no-at-sign",
+        "lincinnovations.com",
+    ):
+        assert is_internal_subject(unattributable_subj) is True, unattributable_subj
+
+    # 4. Lookalikes count as external; no-'@' subjects are excluded and reported
     lookalike_metrics = compute_handoff_metrics(
         [
             {"object_id": "o1", "author_subject": "  u1@lincinnovations.com.evil.io "},
@@ -277,8 +289,21 @@ def test_hostile_subjects_and_drill_env_parsing(
     )
     assert lookalike_metrics["cross_actor_handoff_count"] == 2
     assert lookalike_metrics["handoff_count"] == 2
-    assert lookalike_metrics["external_handoff_count"] == 2
-    assert lookalike_metrics["excluded_subject_count"] == 0
+    assert lookalike_metrics["external_handoff_count"] == 1
+    assert lookalike_metrics["excluded_subject_count"] == 1
+
+    # 4b. Two machine clients / connectors on one object -> no external handoff (no false gate pass)
+    machine_metrics = compute_handoff_metrics(
+        [
+            {"object_id": "o1", "author_subject": "oauth-user"},
+            {"object_id": "o1", "author_subject": "service-client"},
+            {"object_id": "o1", "author_subject": "claude-ai-connector"},
+            {"object_id": "o1", "author_subject": "@example.com"},
+            {"object_id": "o1", "author_subject": "pilot@"},
+        ]
+    )
+    assert machine_metrics["external_handoff_count"] == 0
+    assert machine_metrics["excluded_subject_count"] == 5
 
     # 5. Same external author with surrounding whitespace does not self-handoff
     whitespace_dup = compute_handoff_metrics(
@@ -290,6 +315,47 @@ def test_hostile_subjects_and_drill_env_parsing(
     assert whitespace_dup["cross_actor_handoff_count"] == 0
     assert whitespace_dup["handoff_count"] == 0
     assert whitespace_dup["external_handoff_count"] == 0
+
+
+def test_external_authors_are_case_and_whitespace_normalized() -> None:
+    """[contract] 'Pilot@Example.com' and 'pilot@example.com' on one object are ONE external author."""
+    from gate_metrics import compute_handoff_metrics
+
+    res = compute_handoff_metrics(
+        [
+            {"object_id": "o1", "author_subject": "Pilot@Example.com"},
+            {"object_id": "o1", "author_subject": "pilot@example.com"},
+            {"object_id": "o1", "author_subject": "  PILOT@EXAMPLE.COM\t"},
+        ]
+    )
+    assert res["external_handoff_count"] == 0
+    assert res["excluded_subject_count"] == 0
+
+    # A genuinely distinct second human still counts once.
+    res2 = compute_handoff_metrics(
+        [
+            {"object_id": "o1", "author_subject": "Pilot@Example.com"},
+            {"object_id": "o1", "author_subject": "pilot@example.com"},
+            {"object_id": "o1", "author_subject": "Tech@Example.com"},
+        ]
+    )
+    assert res2["external_handoff_count"] == 1
+
+
+def test_machine_clients_on_one_object_do_not_pass_external_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """[contract] Two machine clients ('service-client', 'oauth-user') on one object -> external 0 on both surfaces."""
+    monkeypatch.delenv("LOCI_GATE_DRILL_SUBJECTS", raising=False)
+    client, sid, cap_tok = _client_and_space(tmp_path, monkeypatch, "Machine Pair")
+    oid = _observe_object(sid, "GM-6G")
+    _commit_lesson(sid, oid, "service-client", "Connector write")
+    _commit_lesson(sid, oid, "oauth-user", "OAuth fallback write")
+
+    row, state = _space_row_and_state(client, sid, cap_tok)
+    for surface in (row, state):
+        assert surface["external_handoff_count"] == 0
+        assert surface["excluded_subject_count"] == 2
 
 
 def test_asks_excluded_from_external_handoff_count_when_unattributed() -> None:
@@ -363,6 +429,12 @@ _SUBJECT_POOL = [
     "tech@lincinnovations.com.evil.io",
     "tech@notlincforge.com",
     "bare-subject-no-at",
+    "oauth-user",
+    "service-client",
+    "@example.com",
+    "pilot@",
+    "Pilot1@Example.com",
+    "PILOT2@EXAMPLE.COM",
 ]
 _OBJECT_POOL = ["obj_1", "obj_2", "obj_3", ""]
 

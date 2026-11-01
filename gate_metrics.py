@@ -27,24 +27,43 @@ def parse_drill_subjects(
     return out
 
 
+def normalize_subject(subject: str | None) -> str:
+    """Canonical author key: stripped and lower-cased (emails are case-insensitive here)."""
+    return str(subject or "").strip().lower()
+
+
+def _is_attributable_email(cleaned: str) -> bool:
+    """True only for 'local@domain' with a non-empty local part and domain."""
+    local, sep, domain = cleaned.rpartition("@")
+    return bool(sep and local and domain)
+
+
+def _is_internal_domain(domain: str) -> bool:
+    return any(
+        domain == internal or domain.endswith(f".{internal}")
+        for internal in INTERNAL_DOMAINS
+    )
+
+
 def is_internal_subject(
     subject: str | None,
     *,
     drill_subjects: str | Iterable[str] | None = None,
 ) -> bool:
-    """Return True if subject is empty, 'anonymous', drill-listed, or under an internal domain."""
-    cleaned = str(subject or "").strip().lower()
+    """Return True if subject is excluded from external handoffs.
+
+    Excluded: empty, 'anonymous', drill-listed, unattributable (no '@', empty local part
+    or empty domain, e.g. machine clients 'service-client' / 'oauth-user'), or under an
+    internal domain (exact match or subdomain). Unknown attribution is never external.
+    """
+    cleaned = normalize_subject(subject)
     if not cleaned or cleaned == "anonymous":
         return True
     if cleaned in parse_drill_subjects(drill_subjects):
         return True
-    if "@" not in cleaned:
-        return False
-    _, _, domain = cleaned.rpartition("@")
-    return any(
-        domain == internal or domain.endswith(f".{internal}")
-        for internal in INTERNAL_DOMAINS
-    )
+    if not _is_attributable_email(cleaned):
+        return True
+    return _is_internal_domain(cleaned.rpartition("@")[2])
 
 
 def compute_handoff_metrics(
@@ -69,11 +88,13 @@ def compute_handoff_metrics(
         subj_str = str(les.get("author_subject") or "").strip()
         internal = is_internal_subject(subj_str, drill_subjects=drill_set)
         if internal:
-            excluded_subjects.add(subj_str.lower())
+            excluded_subjects.add(normalize_subject(subj_str))
         if oid_str and subj_str:
             authors_by_obj.setdefault(oid_str, set()).add(subj_str)
             if not internal:
-                external_authors_by_obj.setdefault(oid_str, set()).add(subj_str)
+                external_authors_by_obj.setdefault(oid_str, set()).add(
+                    normalize_subject(subj_str)
+                )
 
     cross_commit_count = sum(
         max(0, len(authors) - 1) for authors in authors_by_obj.values()
