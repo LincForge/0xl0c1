@@ -7,6 +7,6 @@ COPY --from=ghcr.io/astral-sh/uv:0.13.5 /uv /usr/local/bin/uv
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev
-COPY server.py events.py db.py auth.py embeddings.py labels.py schema.sql schema.postgres.sql viewer.html ./
+COPY server.py events.py db.py auth.py embeddings.py labels.py gate_metrics.py schema.sql schema.postgres.sql viewer.html ./
 EXPOSE 8130
 CMD ["uv", "run", "--no-dev", "--no-sync", "python", "server.py"]

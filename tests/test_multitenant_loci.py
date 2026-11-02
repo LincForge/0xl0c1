@@ -507,6 +507,8 @@ def test_north_star_cross_actor_handoff_telemetry(
     assert row_before["active_cursor_count"] == 1
     assert row_before["ask_count"] == 1
     assert row_before["cross_actor_handoff_count"] == 0
+    assert row_before["handoff_count"] == 0
+    assert row_before["external_handoff_count"] == 0
 
     # Tech 2 arrives on the next shift and calls ask(visible_tag_code="CM-7K")
     tok2 = server._CURRENT_SUBJECT.set("tech2@pacificmech.example")
@@ -530,11 +532,11 @@ def test_north_star_cross_actor_handoff_telemetry(
     assert row_after["active_cursor_count"] == 1
     assert row_after["ask_count"] == 2
     assert row_after["cross_actor_handoff_count"] == 1
-    assert row_after["handoff_count"] >= 1
+    assert row_after["handoff_count"] == 1
 
     state_after = client.get(f"/loci-{cap_tok}/api/state").json()
     assert state_after["tagged_object_count"] == 1
     assert state_after["active_cursor_count"] == 1
     assert state_after["ask_count"] == 2
     assert state_after["cross_actor_handoff_count"] == 1
-    assert state_after["handoff_count"] >= 1
+    assert state_after["handoff_count"] == 1
