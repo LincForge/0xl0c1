@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS space (
     tier                  TEXT NOT NULL DEFAULT 'free',
     capability_token      TEXT NOT NULL UNIQUE,
     capability_token_hash TEXT NOT NULL UNIQUE,
+    viewer_token_hash     TEXT UNIQUE,
     tag_prefix            TEXT NOT NULL DEFAULT '',
     created_at            TEXT NOT NULL
 );

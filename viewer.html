@@ -152,11 +152,28 @@
     flex-wrap: wrap;
     gap: 14px;
   }
+  [hidden] { display: none !important; }
   .mcp-box {
     display: flex;
     align-items: center;
     gap: 10px;
     flex-wrap: wrap;
+  }
+  .readonly-box {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .readonly-pill {
+    font: 700 11px/1 var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 5px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--warn);
+    background: var(--warn-dim);
+    color: var(--warn);
   }
   .mcp-label {
     font: 700 11px/1 var(--mono);
@@ -341,11 +358,15 @@
   </header>
 
   <div class="banner">
-    <div class="mcp-box">
+    <div class="mcp-box" id="mcp-box" hidden>
       <span class="mcp-label">MCP Connector URL</span>
-      <code id="mcp-url">loading…</code>
+      <code id="mcp-url"></code>
       <button type="button" class="btn" id="copy-mcp-btn">Copy URL</button>
       <span class="sub" style="margin-top:0;">Attach in Claude (Settings → Connectors) or ChatGPT (Developer Mode → MCP)</span>
+    </div>
+    <div class="readonly-box" id="viewer-badge" hidden>
+      <span class="readonly-pill">Read-only view</span>
+      <span class="sub" style="margin-top:0;">Observer link · MCP connector and write actions are disabled</span>
     </div>
     <div id="space-meta" class="meta-stats"></div>
   </div>
@@ -374,7 +395,6 @@ const fmtTag = tc => {
 };
 const basePath = location.pathname.replace(/\/$/, '');
 const mcpFullUrl = `${location.origin}${basePath}/mcp`;
-document.getElementById('mcp-url').textContent = mcpFullUrl;
 document.getElementById('labels-link').href = `${basePath}/labels.svg`;
 
 let latestState = null;
@@ -495,6 +515,19 @@ async function tick() {
     const r = await fetch(`${basePath}/api/state`);
     const s = await r.json();
     latestState = s;
+    const isWriter = s.access === 'writer';
+    const mcpBox = document.getElementById('mcp-box');
+    const viewerBadge = document.getElementById('viewer-badge');
+    const mcpUrlEl = document.getElementById('mcp-url');
+    if (isWriter) {
+      mcpUrlEl.textContent = mcpFullUrl;
+      mcpBox.hidden = false;
+      viewerBadge.hidden = true;
+    } else {
+      mcpUrlEl.textContent = '';
+      mcpBox.hidden = true;
+      viewerBadge.hidden = false;
+    }
     if (s.space) {
       document.getElementById('space-title').textContent = s.space.name || 'Space Console';
       document.getElementById('space-tier').textContent = `${s.space.tier || 'free'} tier · ${s.space.slug || s.space.id}`;
