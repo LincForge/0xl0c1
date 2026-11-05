@@ -1217,10 +1217,10 @@ class SpaceAuthMiddleware:
         # Case 1: OAuth 2.1 Bearer token on /mcp
         if path == "/mcp":
             auth_header = headers.get("authorization", "")
-            if auth_header.lower().startswith("bearer "):
-                raw_token = auth_header[7:].strip()
+            scheme, sep, raw_token = auth_header.partition(" ")
+            if scheme.lower() == "bearer" and sep and raw_token:
                 claims = verify_access_token(raw_token)
-                if claims is not None:
+                if claims is not None and claims.role == "writer":
                     tok_sp = _CURRENT_SPACE_ID.set(claims.space_id)
                     tok_sub = _CURRENT_SUBJECT.set(claims.subject)
                     try:
@@ -1254,18 +1254,24 @@ class SpaceAuthMiddleware:
             return
 
         # Case 2: /loci-<space_token>/mcp capability URL
-        m = re.fullmatch(r"/loci-([a-zA-Z0-9_-]+)/mcp", path)
+        m = re.fullmatch(r"/loci-([a-zA-Z0-9_-]{1,256})/mcp", path)
         if m:
             cand_token = m.group(1)
-            db.init_db()
-            if _same_token(cand_token, TOKEN):
-                space_id = db.DEFAULT_SPACE_ID
-            else:
-                sp = db.get_space_by_token(cand_token)
-                if sp is None:
-                    await self.app(scope, receive, send)
+            sp = _resolve_space_from_token_param(cand_token)
+            if sp is None:
+                if db.get_space_by_viewer_token(cand_token) is not None:
+                    resp = JSONResponse(
+                        {
+                            "error": "forbidden",
+                            "error_description": "viewer token is read-only",
+                        },
+                        status_code=403,
+                    )
+                    await resp(scope, receive, send)
                     return
-                space_id = str(sp["id"])
+                await self.app(scope, receive, send)
+                return
+            space_id = str(sp["id"])
             tok_sp = _CURRENT_SPACE_ID.set(space_id)
             hdr_sub = headers.get("x-loci-subject", "").strip()
             tok_hdr_sub = _CURRENT_SUBJECT.set(hdr_sub) if hdr_sub else None
@@ -1299,14 +1305,31 @@ def _base_url(request: Request[State]) -> str:
     return f"{proto}://{host}"
 
 
+AccessRole = Literal["writer", "viewer"]
+
+
 def _resolve_space_from_token_param(token_param: str) -> dict[str, Any] | None:
     db.init_db()
-    token_param = token_param.strip()
-    if not token_param:
+    if not db.is_well_formed_token(token_param):
         return None
     if _same_token(token_param, TOKEN):
         return db.ensure_default_space(TOKEN)
     return db.get_space_by_token(token_param)
+
+
+def _resolve_space_for_read(
+    token_param: str,
+) -> tuple[dict[str, Any], AccessRole] | tuple[None, None]:
+    db.init_db()
+    if not db.is_well_formed_token(token_param):
+        return None, None
+    writer_space = _resolve_space_from_token_param(token_param)
+    if writer_space is not None:
+        return writer_space, "writer"
+    viewer_space = db.get_space_by_viewer_token(token_param)
+    if viewer_space is not None:
+        return viewer_space, "viewer"
+    return None, None
 
 
 _LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
@@ -1352,7 +1375,7 @@ def _client_redirect_allowed(client_id: str, redirect_uri: str) -> bool:
     )
 
 
-def _state_for_space(space_id: str) -> dict[str, Any]:
+def _state_for_space(space_id: str, access: AccessRole = "writer") -> dict[str, Any]:
     db.init_db()
     space = db.get_space_by_id(space_id)
     with db.tx(space_id=space_id) as conn:
@@ -1411,6 +1434,7 @@ def _state_for_space(space_id: str) -> dict[str, Any]:
     )
     metrics = compute_handoff_metrics(lessons, obj_attrs)
     return {
+        "access": access,
         "space": (
             {
                 "id": space["id"],
@@ -1726,15 +1750,25 @@ async def oauth_token_route(request: Request[State]) -> Response:
     return JSONResponse(exchanged)
 
 
+def _raw_bearer_token(request: Request[State]) -> str | None:
+    scheme, sep, raw = request.headers.get("authorization", "").partition(" ")
+    if scheme.lower() != "bearer" or not sep or not raw:
+        return None
+    return raw
+
+
 def _bearer_space_id(request: Request[State]) -> str | None:
-    """Space bound to the request's Bearer credential (root token, space token or OAuth access token)."""
-    scheme, _, raw = request.headers.get("authorization", "").partition(" ")
-    raw = raw.strip()
-    if scheme.lower() != "bearer" or not raw:
+    """Space bound to the request's writer Bearer credential (root token, space writer token or OAuth access token)."""
+    raw = _raw_bearer_token(request)
+    if raw is None:
         return None
     if raw.startswith("loci_at_"):
         claims = verify_access_token(raw)
-        return claims.space_id if claims is not None else None
+        return (
+            claims.space_id
+            if (claims is not None and claims.role == "writer")
+            else None
+        )
     sp = _resolve_space_from_token_param(raw)
     return str(sp["id"]) if sp is not None else None
 
@@ -1801,6 +1835,7 @@ async def spaces_api_route(request: Request[State]) -> Response:
     created["mcp_url"] = f"{root}/loci-{created['capability_token']}/mcp"
     created["console_url"] = f"{root}/loci-{created['capability_token']}/"
     created["labels_svg_url"] = f"{root}/loci-{created['capability_token']}/labels.svg"
+    created["viewer_console_url"] = f"{root}/loci-{created['viewer_token']}/"
     return JSONResponse(created, status_code=201)
 
 
@@ -1839,6 +1874,48 @@ async def rotate_space_token_route(request: Request[State]) -> Response:
     rotated["console_url"] = f"{root}/loci-{rotated['capability_token']}/"
     rotated["labels_svg_url"] = f"{root}/loci-{rotated['capability_token']}/labels.svg"
     return JSONResponse(rotated, status_code=200)
+
+
+@mcp.custom_route("/api/spaces/{space_id}/viewer-token", methods=["POST"])
+async def viewer_token_route(request: Request[State]) -> Response:
+    """Mint or rotate a Space's read-only viewer token (authorized by operator root token or the Space's writer credential)."""
+    db.init_db()
+    caller = _bearer_space_id(request)
+    if caller is None:
+        raw = _raw_bearer_token(request)
+        if raw is not None and db.get_space_by_viewer_token(raw) is not None:
+            return JSONResponse(
+                {
+                    "error": "forbidden",
+                    "error_description": "viewer token is read-only",
+                },
+                status_code=403,
+            )
+        return _unauthorized("Bearer space token or OAuth access token required.")
+    target_space_id = str(request.path_params.get("space_id") or "").strip()
+    if caller != db.DEFAULT_SPACE_ID and caller != target_space_id:
+        return JSONResponse(
+            {
+                "error": "forbidden",
+                "error_description": "Cannot mint a viewer token for another Space.",
+            },
+            status_code=403,
+        )
+    viewer_token = db.mint_viewer_token(target_space_id)
+    if viewer_token is None:
+        return JSONResponse(
+            {"error": "space_not_found", "error_description": "Space not found."},
+            status_code=404,
+        )
+    root = _base_url(request)
+    return JSONResponse(
+        {
+            "space_id": target_space_id,
+            "viewer_token": viewer_token,
+            "viewer_console_url": f"{root}/loci-{viewer_token}/",
+        },
+        status_code=200,
+    )
 
 
 @mcp.custom_route("/api/billing/checkout", methods=["POST"])
@@ -2491,7 +2568,7 @@ async def landing_console_route(request: Request[State]) -> Response:
 @mcp.custom_route("/loci-{space_token}/", methods=["GET"])
 async def space_viewer_route(request: Request[State]) -> Response:
     token_param = str(request.path_params.get("space_token") or "")
-    sp = _resolve_space_from_token_param(token_param)
+    sp, _role = _resolve_space_for_read(token_param)
     if sp is None:
         return JSONResponse({"error": "space_not_found"}, status_code=404)
     return FileResponse(Path(__file__).parent / "viewer.html")
@@ -2500,16 +2577,16 @@ async def space_viewer_route(request: Request[State]) -> Response:
 @mcp.custom_route("/loci-{space_token}/api/state", methods=["GET"])
 async def space_state_route(request: Request[State]) -> Response:
     token_param = str(request.path_params.get("space_token") or "")
-    sp = _resolve_space_from_token_param(token_param)
-    if sp is None:
+    sp, role = _resolve_space_for_read(token_param)
+    if sp is None or role is None:
         return JSONResponse({"error": "space_not_found"}, status_code=404)
-    return JSONResponse(_state_for_space(str(sp["id"])))
+    return JSONResponse(_state_for_space(str(sp["id"]), access=role))
 
 
 @mcp.custom_route("/loci-{space_token}/labels.svg", methods=["GET"])
 async def space_labels_svg_route(request: Request[State]) -> Response:
     token_param = str(request.path_params.get("space_token") or "")
-    sp = _resolve_space_from_token_param(token_param)
+    sp, _role = _resolve_space_for_read(token_param)
     if sp is None:
         return JSONResponse({"error": "space_not_found"}, status_code=404)
     state = _state_for_space(str(sp["id"]))

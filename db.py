@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hmac
 import json
 import os
 import re
@@ -24,6 +25,15 @@ from gate_metrics import compute_handoff_metrics
 HERE = Path(__file__).parent
 DEFAULT_SPACE_ID = "default"
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
+_TOKEN_RE = re.compile(r"[A-Za-z0-9_-]{1,256}")
+
+
+def is_well_formed_token(token: str) -> bool:
+    return bool(_TOKEN_RE.fullmatch(token))
+
+
+def _same_digest(a: str, b: str) -> bool:
+    return hmac.compare_digest(a.encode("utf-8"), b.encode("utf-8"))
 
 
 def now_iso() -> str:
@@ -131,10 +141,17 @@ def _migrate_legacy_postgres(conn: psycopg.Connection[dict[str, Any]]) -> None:
             tier                  TEXT NOT NULL DEFAULT 'free',
             capability_token      TEXT NOT NULL UNIQUE,
             capability_token_hash TEXT NOT NULL UNIQUE,
+            viewer_token_hash     TEXT UNIQUE,
             tag_prefix            TEXT NOT NULL DEFAULT '',
             created_at            TEXT NOT NULL
         );
         """
+    )
+    conn.execute(
+        "ALTER TABLE IF EXISTS space ADD COLUMN IF NOT EXISTS viewer_token_hash TEXT"
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_space_viewer_token_hash ON space(viewer_token_hash)"
     )
     tok = default_path_token()
     conn.execute(
@@ -193,7 +210,19 @@ def _migrate_legacy_postgres(conn: psycopg.Connection[dict[str, Any]]) -> None:
 
 
 def _migrate_legacy_sqlite(conn: sqlite3.Connection) -> None:
-    """If an existing local loci.db has a 4-table schema without space_id, upgrade it in place."""
+    """If an existing local loci.db has an older schema, upgrade it in place."""
+    space_cur = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='space'"
+    ).fetchone()
+    if space_cur is not None:
+        space_cols = {
+            str(r[1]) for r in conn.execute("PRAGMA table_info(space)").fetchall()
+        }
+        if space_cols and "viewer_token_hash" not in space_cols:
+            conn.execute("ALTER TABLE space ADD COLUMN viewer_token_hash TEXT")
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_space_viewer_token_hash ON space(viewer_token_hash)"
+            )
     cur = conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='object'"
     ).fetchone()
@@ -312,6 +341,10 @@ def create_space(
     clean_slug = _slugify(slug or name)
     tok = (capability_token or new_token(24)).strip()
     tok_hash = sha256_hex(tok)
+    vtok = new_token(24)
+    while _same_digest(vtok, tok):
+        vtok = new_token(24)
+    vtok_hash = sha256_hex(vtok)
     now = now_iso()
     with tx() as conn:
         if conn.execute(
@@ -320,8 +353,8 @@ def create_space(
             clean_slug = f"{clean_slug}-{secrets.token_hex(2)}"
         conn.execute(
             q(
-                "INSERT INTO space (id, slug, name, tier, capability_token, capability_token_hash, tag_prefix, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+                "INSERT INTO space (id, slug, name, tier, capability_token, capability_token_hash, viewer_token_hash, tag_prefix, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
             ),
             (
                 space_id,
@@ -330,6 +363,7 @@ def create_space(
                 tier,
                 stored_token_value(tok_hash),
                 tok_hash,
+                vtok_hash,
                 tag_prefix.upper()[:2],
                 now,
             ),
@@ -349,22 +383,70 @@ def create_space(
         "tier": tier,
         "capability_token": tok,
         "capability_token_hash": tok_hash,
+        "viewer_token": vtok,
+        "viewer_token_hash": vtok_hash,
         "tag_prefix": tag_prefix.upper()[:2],
         "created_at": now,
     }
 
 
 def get_space_by_token(capability_token: str) -> dict[str, Any] | None:
-    tok = capability_token.strip()
-    if not tok:
+    if not is_well_formed_token(capability_token):
         return None
-    tok_hash = sha256_hex(tok)
+    tok_hash = sha256_hex(capability_token)
     with tx() as conn:
         row = conn.execute(
             q("SELECT * FROM space WHERE capability_token_hash = ?"),
             (tok_hash,),
         ).fetchone()
-        return _row_dict(row) if row is not None else None
+        if row is None:
+            return None
+        d = _row_dict(row)
+        stored = str(d.get("capability_token_hash") or "")
+        return d if (stored and _same_digest(stored, tok_hash)) else None
+
+
+def get_space_by_viewer_token(token: str) -> dict[str, Any] | None:
+    if not is_well_formed_token(token):
+        return None
+    tok_hash = sha256_hex(token)
+    with tx() as conn:
+        row = conn.execute(
+            q("SELECT * FROM space WHERE viewer_token_hash = ?"),
+            (tok_hash,),
+        ).fetchone()
+        if row is None:
+            return None
+        d = _row_dict(row)
+        stored = str(d.get("viewer_token_hash") or "")
+        return d if (stored and _same_digest(stored, tok_hash)) else None
+
+
+def mint_viewer_token(space_id: str, new_viewer_token: str | None = None) -> str | None:
+    """Mint a fresh read-only viewer token for an existing Space; returns raw token once and stores only its SHA-256 digest."""
+    init_db()
+    if not is_well_formed_token(space_id):
+        return None
+    tok = (new_viewer_token or new_token(24)).strip()
+    tok_hash = sha256_hex(tok)
+    with tx() as conn:
+        existing = conn.execute(
+            q("SELECT * FROM space WHERE id = ?"), (space_id,)
+        ).fetchone()
+        if existing is None:
+            return None
+        row = _row_dict(existing)
+        while _same_digest(tok_hash, str(row.get("capability_token_hash") or "")) or (
+            row.get("viewer_token_hash")
+            and _same_digest(tok_hash, str(row.get("viewer_token_hash") or ""))
+        ):
+            tok = new_token(24)
+            tok_hash = sha256_hex(tok)
+        conn.execute(
+            q("UPDATE space SET viewer_token_hash = ? WHERE id = ?"),
+            (tok_hash, space_id),
+        )
+    return tok
 
 
 def get_space_by_id(space_id: str) -> dict[str, Any] | None:

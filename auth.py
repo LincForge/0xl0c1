@@ -144,7 +144,12 @@ def mint_access_token(
 
 
 def verify_access_token(token: str) -> AuthClaims | None:
-    if not token.startswith("loci_at_") or "." not in token:
+    if (
+        len(token) > 2048
+        or any(c.isspace() for c in token)
+        or not token.startswith("loci_at_")
+        or "." not in token
+    ):
         return None
     body_part, sig_part = token[len("loci_at_") :].split(".", 1)
     try:
