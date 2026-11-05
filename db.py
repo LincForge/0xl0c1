@@ -454,7 +454,10 @@ def list_all_spaces() -> list[dict[str, Any]]:
 
             objs = [_row_dict(o) for o in obj_rows]
             lessons = [_row_dict(les) for les in les_rows]
-            obj_attrs = [_parse_attrs_json(o.get("attrs_json")) for o in objs]
+            obj_attrs = [
+                {**_parse_attrs_json(o.get("attrs_json")), "object_id": str(o["id"])}
+                for o in objs
+            ]
 
             object_count = len(objs)
             tagged_object_count = sum(
