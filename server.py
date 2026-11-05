@@ -58,6 +58,7 @@ from auth import (
     valid_s256_challenge,
     verify_access_token,
 )
+from billing import build_checkout_payload, validate_checkout_body
 from gate_metrics import compute_handoff_metrics
 from embeddings import cosine_similarity, get_embedding_provider
 from events import new_event, project
@@ -1844,30 +1845,11 @@ async def rotate_space_token_route(request: Request[State]) -> Response:
 @mcp.custom_route("/api/billing/checkout", methods=["POST"])
 async def billing_checkout_route(request: Request[State]) -> Response:
     body = await _json_object(request)
-    if body is None:
-        return _bad_body()
-    tier = str(body.get("tier") or "pro").lower()
-    space_id = str(body.get("space_id") or db.DEFAULT_SPACE_ID)
-    prices = {
-        "free": {"amount_usd": 0, "label": "Maker / Home Free Tier"},
-        "pro": {"amount_usd": 12, "label": "Pro Shop / Multi-Property ($12/mo)"},
-        "team": {"amount_usd": 49, "label": "Team & Field-Service Handoff ($49/mo)"},
-        "tags": {
-            "amount_usd": 29,
-            "label": "50x Weatherproof Visual Base32 Tag Pack ($29)",
-        },
-    }
-    selected = prices.get(tier, prices["pro"])
-    root = _base_url(request)
-    return JSONResponse(
-        {
-            "ok": True,
-            "tier": tier,
-            "space_id": space_id,
-            "plan": selected,
-            "checkout_url": f"{root}/pricing?checkout=ready&tier={tier}&space_id={space_id}",
-        }
-    )
+    validated = validate_checkout_body(body)
+    if validated is None:
+        return JSONResponse({"error": "invalid_request"}, status_code=400)
+    tier, space_id, email = validated
+    return JSONResponse(build_checkout_payload(tier, space_id, email))
 
 
 @mcp.custom_route("/labels-sample.svg", methods=["GET"])
@@ -2025,7 +2007,6 @@ async def pricing_page_route(request: Request[State]) -> Response:  # noqa: ARG0
           <ul class="feat-list">
             <li>50x matte-black / signal-white vinyl stickers</li>
             <li>20-char homoglyph-free alphabet + Mod-30 check</li>
-            <li>Readable by any frontier VLM at 1.5m distance</li>
             <li>Includes instant SVG sheet download</li>
           </ul>
         </div>
@@ -2082,10 +2063,12 @@ async def pricing_page_route(request: Request[State]) -> Response:  # noqa: ARG0
     const titleEl = document.getElementById('dialog-title');
     const tierEl = document.getElementById('dialog-tier');
     const resEl = document.getElementById('modal-result');
+    const STRIPE_LINK_RE = /^https:\\/\\/buy\\.stripe\\.com\\/(test_)?[A-Za-z0-9]{8,64}(\\?|$)/;
     document.querySelectorAll('button[data-tier]').forEach((btn) => {
       btn.addEventListener('click', () => {
         tierEl.value = btn.getAttribute('data-tier') || 'pro';
         titleEl.textContent = btn.getAttribute('data-title') || 'Select Plan';
+        resEl.replaceChildren();
         resEl.style.display = 'none';
         dialog.showModal();
       });
@@ -2101,16 +2084,45 @@ async def pricing_page_route(request: Request[State]) -> Response:  # noqa: ARG0
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({tier, space_id, email})
       });
-      const data = await resp.json();
+      const data = await resp.json().catch(() => null);
+      resEl.replaceChildren();
       resEl.style.display = 'block';
-      if (data && data.ok) {
-        const mailSubject = encodeURIComponent('LINC Loci Space Provisioning: ' + data.plan.label);
-        const mailBody = encodeURIComponent('Operator email: ' + email + '\\nTier: ' + data.tier + '\\nSpace ID: ' + data.space_id);
-        resEl.innerHTML = '<div style="color:var(--green);font-weight:700;margin-bottom:6px">✓ Plan Reserved: ' + data.plan.label + '</div>' +
-          '<div style="color:var(--muted);margin-bottom:8px">Reference URL: <code>' + data.checkout_url + '</code></div>' +
-          '<a href="mailto:faust@lincinnovations.com?subject=' + mailSubject + '&body=' + mailBody + '" style="display:inline-block;padding:6px 10px;background:var(--panel);border:1px solid var(--accent);border-radius:4px;color:var(--accent)">Send Instant Provisioning Request →</a>';
+      if (resp.ok && data && data.ok) {
+        if (
+          data.payment === 'stripe_payment_link' &&
+          typeof data.checkout_url === 'string' &&
+          STRIPE_LINK_RE.test(data.checkout_url)
+        ) {
+          if (data.stripe_mode === 'test') {
+            const noteEl = document.createElement('div');
+            noteEl.style.cssText = 'color:var(--amber);font-weight:700;margin-bottom:8px';
+            noteEl.textContent = 'TEST MODE: no real charge';
+            resEl.appendChild(noteEl);
+          }
+          const payBtn = document.createElement('a');
+          payBtn.setAttribute('href', data.checkout_url);
+          payBtn.setAttribute('rel', 'noopener');
+          payBtn.setAttribute('target', '_blank');
+          payBtn.style.cssText = 'display:inline-block;padding:8px 14px;background:var(--accent);color:#06080c;font-weight:700;border-radius:6px;text-decoration:none';
+          payBtn.textContent = 'Pay $29 on Stripe';
+          resEl.appendChild(payBtn);
+        } else {
+          const statusEl = document.createElement('div');
+          statusEl.style.cssText = 'color:var(--amber);font-weight:700;margin-bottom:8px';
+          statusEl.textContent = 'Online payment is not open yet';
+          resEl.appendChild(statusEl);
+          const planLabel = (data.plan && data.plan.label) ? String(data.plan.label) : String(tier);
+          const contact = (typeof data.contact === 'string' && data.contact) ? data.contact : 'faust@lincinnovations.com';
+          const mailSubject = encodeURIComponent('LINC Loci Space Provisioning: ' + planLabel);
+          const mailBody = encodeURIComponent('Operator email: ' + email + '\\nTier: ' + String(data.tier || tier) + '\\nSpace ID: ' + String(data.space_id || space_id));
+          const mailLink = document.createElement('a');
+          mailLink.setAttribute('href', 'mailto:' + contact + '?subject=' + mailSubject + '&body=' + mailBody);
+          mailLink.style.cssText = 'display:inline-block;padding:6px 10px;background:var(--panel);border:1px solid var(--accent);border-radius:4px;color:var(--accent)';
+          mailLink.textContent = 'Send Instant Provisioning Request →';
+          resEl.appendChild(mailLink);
+        }
       } else {
-        resEl.textContent = 'Unable to reserve checkout session. Please try again.';
+        resEl.textContent = 'Invalid checkout request. Please check your Space ID and email.';
       }
     });
   </script>
