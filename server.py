@@ -1398,7 +1398,10 @@ def _state_for_space(space_id: str) -> dict[str, Any]:
                 (space_id,),
             ).fetchall()
         ]
-    obj_attrs = [db._parse_attrs_json(o.get("attrs_json")) for o in raw_objects]
+    obj_attrs = [
+        {**db._parse_attrs_json(o.get("attrs_json")), "object_id": str(o["id"])}
+        for o in raw_objects
+    ]
     objects = [{k: v for k, v in o.items() if k != "attrs_json"} for o in raw_objects]
     tagged_object_count = sum(
         1 for o in objects if str(o.get("tag_code") or "").strip()
@@ -2863,6 +2866,23 @@ def seed_showcase_spaces() -> list[dict[str, Any]]:
                     space_id=sid,
                 )
                 oid = str(obs["object_id"])
+                with db.tx(space_id=sid) as conn:
+                    obj_row = conn.execute(
+                        db.q(
+                            "SELECT attrs_json FROM object WHERE space_id = ? AND id = ?"
+                        ),
+                        (sid, oid),
+                    ).fetchone()
+                    attrs = db._parse_attrs_json(
+                        dict(obj_row).get("attrs_json") if obj_row is not None else None
+                    )
+                    attrs["drill"] = True
+                    conn.execute(
+                        db.q(
+                            "UPDATE object SET attrs_json = ? WHERE space_id = ? AND id = ?"
+                        ),
+                        (json.dumps(attrs), sid, oid),
+                    )
                 for les in obj_spec["lessons"]:
                     tok_u = _CURRENT_SUBJECT.set(str(les["author"]))
                     try:

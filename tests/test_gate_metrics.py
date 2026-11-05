@@ -58,7 +58,7 @@ def _client_and_space(
 def _observe_object(space_id: str, tag_code: str = "GM-2B") -> str:
     import server
 
-    tok = server._CURRENT_SUBJECT.set("pilot@example.com")
+    tok = server._CURRENT_SUBJECT.set("pilot@fieldops.io")
     try:
         obs = server.observe(
             place_label="mechanical room",
@@ -130,7 +130,7 @@ def test_single_author_five_lessons_zero_asks_has_zero_handoffs(
     client, sid, cap_tok = _client_and_space(tmp_path, monkeypatch, "Single Author 5")
     oid = _observe_object(sid, "GM-2B")
     for i in range(5):
-        _commit_lesson(sid, oid, "pilot@example.com", f"Lesson {i + 1}")
+        _commit_lesson(sid, oid, "pilot@fieldops.io", f"Lesson {i + 1}")
 
     row, state = _space_row_and_state(client, sid, cap_tok)
     assert row["lesson_count"] == 5
@@ -151,7 +151,7 @@ def test_internal_and_external_author_pair_counts_cross_actor_but_not_external(
     client, sid, cap_tok = _client_and_space(tmp_path, monkeypatch, "Mixed Pair")
     oid = _observe_object(sid, "GM-3C")
     _commit_lesson(sid, oid, "owner@lincinnovations.com", "Internal setup")
-    _commit_lesson(sid, oid, "pilot@example.com", "External follow-up")
+    _commit_lesson(sid, oid, "pilot@fieldops.io", "External follow-up")
 
     row, state = _space_row_and_state(client, sid, cap_tok)
     for surface in (row, state):
@@ -169,8 +169,8 @@ def test_two_external_authors_on_one_object_counts_external_one(
     monkeypatch.delenv("LOCI_GATE_DRILL_SUBJECTS", raising=False)
     client, sid, cap_tok = _client_and_space(tmp_path, monkeypatch, "External Pair")
     oid = _observe_object(sid, "GM-4D")
-    _commit_lesson(sid, oid, "pilot1@example.com", "Shift 1 inspection")
-    _commit_lesson(sid, oid, "pilot2@example.com", "Shift 2 repair")
+    _commit_lesson(sid, oid, "pilot1@fieldops.io", "Shift 1 inspection")
+    _commit_lesson(sid, oid, "pilot2@fieldops.io", "Shift 2 repair")
 
     row, state = _space_row_and_state(client, sid, cap_tok)
     for surface in (row, state):
@@ -197,7 +197,7 @@ def test_drill_subjects_anonymous_empty_and_internal_subdomains_excluded(
         "",
         "Ops@LincForge.com",
         "x@eu.sniperpulse.com",
-        "pilot@example.com",
+        "pilot@fieldops.io",
     ):
         _commit_lesson(sid, oid, subj, f"Lesson by {subj or 'empty'}")
 
@@ -219,18 +219,18 @@ def test_hostile_subjects_and_drill_env_parsing(
     from gate_metrics import compute_handoff_metrics, is_internal_subject
 
     # 1. LOCI_GATE_DRILL_SUBJECTS unset, empty, or with stray commas -> no crash
-    for env_val in (None, "", "   ", ",,,", " , , drill-actor@example.com , , "):
+    for env_val in (None, "", "   ", ",,,", " , , drill-actor@fieldops.io , , "):
         if env_val is None:
             monkeypatch.delenv("LOCI_GATE_DRILL_SUBJECTS", raising=False)
         else:
             monkeypatch.setenv("LOCI_GATE_DRILL_SUBJECTS", env_val)
         res = compute_handoff_metrics(
             [
-                {"object_id": "o1", "author_subject": "drill-actor@example.com"},
-                {"object_id": "o1", "author_subject": "pilot@example.com"},
+                {"object_id": "o1", "author_subject": "drill-actor@fieldops.io"},
+                {"object_id": "o1", "author_subject": "pilot@fieldops.io"},
             ]
         )
-        if env_val and "drill-actor@example.com" in env_val:
+        if env_val and "drill-actor@fieldops.io" in env_val:
             assert res["external_handoff_count"] == 0
             assert res["excluded_subject_count"] == 1
         else:
@@ -256,11 +256,11 @@ def test_hostile_subjects_and_drill_env_parsing(
 
     # 3. Domain lookalikes -> treated as external (exact-domain/subdomain rule only)
     for external_subj in (
-        "pilot@example.com",
-        "  pilot@example.com  ",
+        "pilot@fieldops.io",
+        "  pilot@fieldops.io  ",
         "user@lincinnovations.com.evil.io",
         "user@notlincforge.com",
-        "user@sniperpulse.com.attacker.example",
+        "user@sniperpulse.com.attacker.io",
         "user@fakelincinnovations.com",
     ):
         assert is_internal_subject(external_subj) is False, external_subj
@@ -308,8 +308,8 @@ def test_hostile_subjects_and_drill_env_parsing(
     # 5. Same external author with surrounding whitespace does not self-handoff
     whitespace_dup = compute_handoff_metrics(
         [
-            {"object_id": "o1", "author_subject": "pilot@example.com"},
-            {"object_id": "o1", "author_subject": "  pilot@example.com\n"},
+            {"object_id": "o1", "author_subject": "pilot@fieldops.io"},
+            {"object_id": "o1", "author_subject": "  pilot@fieldops.io\n"},
         ]
     )
     assert whitespace_dup["cross_actor_handoff_count"] == 0
@@ -318,14 +318,14 @@ def test_hostile_subjects_and_drill_env_parsing(
 
 
 def test_external_authors_are_case_and_whitespace_normalized() -> None:
-    """[contract] 'Pilot@Example.com' and 'pilot@example.com' on one object are ONE external author."""
+    """[contract] 'Pilot@FieldOps.io' and 'pilot@fieldops.io' on one object are ONE external author."""
     from gate_metrics import compute_handoff_metrics
 
     res = compute_handoff_metrics(
         [
-            {"object_id": "o1", "author_subject": "Pilot@Example.com"},
-            {"object_id": "o1", "author_subject": "pilot@example.com"},
-            {"object_id": "o1", "author_subject": "  PILOT@EXAMPLE.COM\t"},
+            {"object_id": "o1", "author_subject": "Pilot@FieldOps.io"},
+            {"object_id": "o1", "author_subject": "pilot@fieldops.io"},
+            {"object_id": "o1", "author_subject": "  PILOT@FIELDOPS.IO\t"},
         ]
     )
     assert res["external_handoff_count"] == 0
@@ -334,9 +334,9 @@ def test_external_authors_are_case_and_whitespace_normalized() -> None:
     # A genuinely distinct second human still counts once.
     res2 = compute_handoff_metrics(
         [
-            {"object_id": "o1", "author_subject": "Pilot@Example.com"},
-            {"object_id": "o1", "author_subject": "pilot@example.com"},
-            {"object_id": "o1", "author_subject": "Tech@Example.com"},
+            {"object_id": "o1", "author_subject": "Pilot@FieldOps.io"},
+            {"object_id": "o1", "author_subject": "pilot@fieldops.io"},
+            {"object_id": "o1", "author_subject": "Tech@FieldOps.io"},
         ]
     )
     assert res2["external_handoff_count"] == 1
