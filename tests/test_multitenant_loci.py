@@ -361,7 +361,8 @@ def test_oauth21_and_web_console_http_endpoints(live_server: str) -> None:
         json={"tier": "team", "space_id": sp2["space_id"], "email": "ops@example.com"},
     )
     assert checkout_resp.status_code == 200
-    assert "checkout_url" in checkout_resp.json()
+    assert checkout_resp.json()["payment"] == "unavailable"
+    assert "checkout_url" not in checkout_resp.json()
 
     # 7. Root-token seed endpoint seeds the 5 showcase spaces idempotently
     seed1 = httpx.post(f"{server}/loci-root-token/api/seed")
